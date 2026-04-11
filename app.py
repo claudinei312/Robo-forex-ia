@@ -2,11 +2,11 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 from robo import executar_robo
 
-st.set_page_config(page_title="Robô Forex IA")
+st.set_page_config(page_title="Robô Forex IA", layout="centered")
 
-st.title("🤖 Robô Forex Inteligente")
+st.title("🤖 Robô Forex Inteligente com IA")
 
-# Atualiza a cada 5 minutos
+# atualiza a cada 5 min
 st_autorefresh(interval=300000)
 
 resultado = executar_robo()
