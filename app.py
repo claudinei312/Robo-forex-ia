@@ -6,49 +6,70 @@ from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
+import smtplib
+from email.mime.text import MIMEText
+import requests
 
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="Robô Forex IA", layout="centered")
-st.title("🤖 Robô Forex Inteligente com IA")
+st.set_page_config(page_title="Robô Forex IA HARD", layout="centered")
+
+st.title("🤖 Robô Forex IA HARD LEVEL")
 
 st_autorefresh(interval=60000, key="refresh")
-
-# =========================
-# BOTÃO LIGAR / DESLIGAR
-# =========================
-ligado = st.toggle("🔌 Ligar Robô", value=True)
 
 # =========================
 # SECRETS
 # =========================
 API_KEY = st.secrets["API_KEY"]
-td = TDClient(API_KEY)
+EMAIL = st.secrets["EMAIL"]
+SENHA = st.secrets["SENHA"]
 
 ativo = "EUR/USD"
-intervalo = "5min"
+
+td = TDClient(API_KEY)
 
 # =========================
-# IA SIMPLES (MEMÓRIA)
+# EMAIL SYSTEM
 # =========================
-if "historico" not in st.session_state:
-    st.session_state.historico = []
+def enviar_email(msg):
+    try:
+        m = MIMEText(msg)
+        m["Subject"] = "🤖 ALERTA ROBÔ FOREX"
+        m["From"] = EMAIL
+        m["To"] = EMAIL
 
-def ia_avaliar(sinal):
-    """
-    IA simples: ajusta confiança baseada no histórico
-    """
-    if len(st.session_state.historico) < 5:
-        return "NORMAL"
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(EMAIL, SENHA)
+        server.sendmail(EMAIL, EMAIL, m.as_string())
+        server.quit()
+    except:
+        pass
 
-    ultimos = st.session_state.historico[-5:]
+# =========================
+# NOTÍCIAS (NOVO)
+# =========================
+def buscar_noticias():
+    try:
+        url = f"https://api.twelvedata.com/news?symbol={ativo}&apikey={API_KEY}"
+        r = requests.get(url).json()
 
-    losses = sum(1 for x in ultimos if x["resultado"] == "LOSS")
+        if "data" in r:
+            return r["data"][:3]
+        return []
+    except:
+        return []
 
-    if losses >= 3:
-        return "MERCADO DIFÍCIL"
-    return "NORMAL"
+def impacto_noticia(noticias):
+    for n in noticias:
+        texto = (n.get("title", "") + n.get("description", "")).lower()
+
+        if any(x in texto for x in ["federal", "inflation", "interest", "rate", "fed"]):
+            return True, n.get("title")
+
+    return False, None
 
 # =========================
 # DADOS
@@ -56,7 +77,7 @@ def ia_avaliar(sinal):
 def pegar_dados():
     ts = td.time_series(
         symbol=ativo,
-        interval=intervalo,
+        interval="5min",
         outputsize=200
     ).as_pandas()
 
@@ -66,6 +87,29 @@ def pegar_dados():
         ts[c] = pd.to_numeric(ts[c], errors="coerce")
 
     return ts.dropna()
+
+# =========================
+# IA SCORE ENGINE
+# =========================
+def calcular_score(rsi, ma9, ma21, ma200, lateral):
+    score = 50
+
+    if ma9 > ma21:
+        score += 10
+    else:
+        score -= 10
+
+    if rsi > 55:
+        score += 15
+    elif rsi < 45:
+        score -= 15
+
+    if not lateral:
+        score += 10
+    else:
+        score -= 20
+
+    return max(0, min(100, score))
 
 # =========================
 # ESTRATÉGIA
@@ -90,63 +134,72 @@ def analisar(df):
 
     candle = df.iloc[-1]
     corpo = abs(candle["close"] - candle["open"])
-    pavio_inf = candle["open"] - candle["low"]
-    pavio_sup = candle["high"] - candle["open"]
-
-    rejeicao_compra = pavio_inf > corpo * 2
-    rejeicao_venda = pavio_sup > corpo * 2
 
     lateral = abs(ma9 - ma21) < 0.0002
 
     horario = datetime.now().strftime("%H:%M:%S")
 
-    # filtros básicos
-    if atr < 0.0003 or atr > 0.003:
-        return "AGUARDAR", preco, 0, 0, horario
+    score = calcular_score(rsi, ma9, ma21, ma200, lateral)
 
     # COMPRA
-    if (
-        preco > ma200 and ma9 > ma21 and rsi > 55 and
-        preco <= suporte * 1.002 and rejeicao_compra and not lateral
-    ):
-        return "COMPRA", preco, suporte, preco + (preco - suporte) * 2, horario
+    if score > 70 and preco > ma200 and ma9 > ma21:
+        return "COMPRA", preco, suporte, preco + (preco - suporte) * 2, horario, score
 
     # VENDA
-    if (
-        preco < ma200 and ma9 < ma21 and rsi < 45 and
-        preco >= resistencia * 0.998 and rejeicao_venda and not lateral
-    ):
-        return "VENDA", preco, resistencia, preco - (resistencia - preco) * 2, horario
+    if score < 30 and preco < ma200 and ma9 < ma21:
+        return "VENDA", preco, resistencia, preco - (resistencia - preco) * 2, horario, score
 
-    return "AGUARDAR", preco, 0, 0, horario
+    return "AGUARDAR", preco, 0, 0, horario, score
 
 # =========================
-# EXECUÇÃO
+# START ALERT
 # =========================
-if ligado:
+if "start" not in st.session_state:
+    st.session_state.start = True
+    enviar_email("🤖 Robô iniciado com sucesso")
 
-    df = pegar_dados()
-    sinal, preco, stop, alvo, horario = analisar(df)
+# =========================
+# RUN
+# =========================
+df = pegar_dados()
+sinal, preco, stop, alvo, horario, score = analisar(df)
 
-    nivel_ia = ia_avaliar(sinal)
+noticias = buscar_noticias()
+alerta_noticia, titulo = impacto_noticia(noticias)
 
-    st.markdown("## 📊 Painel do Mercado")
+# =========================
+# PAINEL
+# =========================
+st.markdown(f"## 📊 Ativo: {ativo}")
 
-    st.write(f"💰 Preço: {preco}")
-    st.write(f"📌 Sinal: {sinal}")
-    st.write(f"🧠 IA: {nivel_ia}")
-    st.write(f"🛑 Stop: {stop}")
-    st.write(f"🎯 Alvo: {alvo}")
-    st.write(f"🕒 Hora: {horario}")
+st.write(f"💰 Preço: {preco}")
+st.write(f"📌 Sinal: {sinal}")
+st.write(f"🧠 IA Score: {score}/100")
+st.write(f"🕒 Hora: {horario}")
 
-    st.markdown("---")
+# =========================
+# NOTÍCIAS
+# =========================
+st.markdown("## 📰 Notícias")
 
-    if sinal == "AGUARDAR":
-        st.info("⏳ Sem entrada — aguardando próxima vela")
-    elif sinal == "COMPRA":
-        st.success("🟢 POSSÍVEL COMPRA NA PRÓXIMA VELA")
-    elif sinal == "VENDA":
-        st.error("🔴 POSSÍVEL VENDA NA PRÓXIMA VELA")
+if alerta_noticia:
+    st.error(f"⚠️ IMPACTO ALTO: {titulo}")
+else:
+    st.success("Nenhuma notícia crítica")
+
+for n in noticias:
+    st.write("•", n.get("title"))
+
+# =========================
+# ALERTA DE ENTRADA
+# =========================
+if sinal == "COMPRA":
+    st.success("🟢 POSSÍVEL COMPRA")
+    enviar_email(f"COMPRA detectada {ativo} preço {preco}")
+
+elif sinal == "VENDA":
+    st.error("🔴 POSSÍVEL VENDA")
+    enviar_email(f"VENDA detectada {ativo} preço {preco}")
 
 else:
-    st.warning("⛔ Robô desligado")
+    st.info("⏳ Aguardando entrada")
