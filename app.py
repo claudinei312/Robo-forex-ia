@@ -31,7 +31,7 @@ SENHA = st.secrets["SENHA"]
 td = TDClient(API_KEY)
 
 # =========================
-# MEMÓRIA IA
+# MEMÓRIA
 # =========================
 if "trades" not in st.session_state:
     st.session_state.trades = []
@@ -61,6 +61,50 @@ def enviar_email(msg):
         pass
 
 # =========================
+# MERCADO FECHADO + SEGUNDA
+# =========================
+def mercado_status():
+
+    agora = datetime.utcnow()
+    dia = agora.weekday()
+
+    if dia == 5 or dia == 6:
+
+        dias = (7 - dia) % 7
+        if dias == 0:
+            dias = 1
+
+        abertura = agora + timedelta(days=dias)
+        abertura = abertura.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        return False, abertura
+
+    return True, None
+
+
+def countdown(abertura):
+
+    if abertura is None:
+        return None
+
+    agora = datetime.utcnow()
+    diff = abertura - agora
+
+    return f"{diff.seconds//3600}h {(diff.seconds%3600)//60}m"
+
+# =========================
+# NOTÍCIAS (mantido como você queria)
+# =========================
+def noticias():
+
+    return [
+        "📉 USD com leve pressão no curto prazo",
+        "📊 EUR tentando recuperação contra dólar",
+        "⚠️ Possível alta volatilidade no mercado",
+        "🧠 Mercado sem tendência clara no momento"
+    ]
+
+# =========================
 # DADOS
 # =========================
 def dados():
@@ -79,7 +123,7 @@ def dados():
     return df.dropna()
 
 # =========================
-# SCORE IA
+# IA SCORE
 # =========================
 def score(df):
 
@@ -88,41 +132,39 @@ def score(df):
     df["RSI"] = RSIIndicator(df["close"], 14).rsi()
 
     preco = df["close"].iloc[-1]
-    ma9 = df["MA9"].iloc[-1]
-    ma21 = df["MA21"].iloc[-1]
-    rsi = df["RSI"].iloc[-1]
 
     s = 50
 
-    if ma9 > ma21:
+    if df["MA9"].iloc[-1] > df["MA21"].iloc[-1]:
         s += 20
     else:
         s -= 20
 
-    if rsi > 55:
+    if df["RSI"].iloc[-1] > 55:
         s += 15
-    elif rsi < 45:
+    elif df["RSI"].iloc[-1] < 45:
         s -= 15
 
     s *= st.session_state.model_bias
+    s = max(0, min(100, s))
 
-    return max(0, min(100, s)), preco
+    return s, preco
 
 # =========================
-# DECISÃO
+# SINAL
 # =========================
-def sinal(score):
+def decidir(s):
 
-    if score >= 72:
+    if s >= 72:
         return "COMPRA"
-    if score <= 28:
+    elif s <= 28:
         return "VENDA"
     return "AGUARDAR"
 
 # =========================
 # BACKTEST EM TEMPO REAL
 # =========================
-def atualizar_backtest(preco_atual):
+def backtest(preco):
 
     pos = st.session_state.posicao
 
@@ -136,16 +178,16 @@ def atualizar_backtest(preco_atual):
 
     if tipo == "COMPRA":
 
-        if preco_atual >= entrada * 1.0005:
+        if preco >= entrada * 1.0005:
             resultado = "WIN"
-        elif preco_atual <= entrada * 0.9995:
+        elif preco <= entrada * 0.9995:
             resultado = "LOSS"
 
     if tipo == "VENDA":
 
-        if preco_atual <= entrada * 0.9995:
+        if preco <= entrada * 0.9995:
             resultado = "WIN"
-        elif preco_atual >= entrada * 1.0005:
+        elif preco >= entrada * 1.0005:
             resultado = "LOSS"
 
     if resultado:
@@ -173,48 +215,63 @@ def stats():
 # =========================
 if ligado:
 
+    ativo_ok, abertura = mercado_status()
+
+    st.markdown("## 📊 Painel IA Forex")
+
+    # =========================
+    # NOTÍCIAS SEMPRE
+    # =========================
+    st.markdown("## 📰 Notícias")
+
+    for n in noticias():
+        st.write(n)
+
+    if not ativo_ok:
+
+        st.error("⛔ MERCADO FECHADO")
+
+        st.warning(f"⏳ Abre em: {countdown(abertura)}")
+
+        st.info("🧠 IA em standby")
+
     df = dados()
 
-    sc, preco = score(df)
+    s, preco = score(df)
 
-    sig = sinal(sc)
+    sinal = decidir(s)
 
-    # =========================
-    # BACKTEST REAL
-    # =========================
-    atualizar_backtest(preco)
+    backtest(preco)
 
     winrate, wins, losses = stats()
 
     # =========================
     # ENTRADA
     # =========================
-    if sig != "AGUARDAR" and st.session_state.posicao is None:
+    if ativo_ok and sinal != "AGUARDAR" and st.session_state.posicao is None:
 
         st.session_state.posicao = {
-            "tipo": sig,
+            "tipo": sinal,
             "entrada": preco
         }
 
-        enviar_email(f"{sig} {ativo} {preco}")
+        enviar_email(f"{sinal} {ativo} {preco}")
 
     # =========================
     # PAINEL
     # =========================
-    st.markdown("## 📊 IA Trading Panel")
-
     st.write(f"💱 Ativo: {ativo}")
     st.write(f"💰 Preço: {preco}")
-    st.write(f"🧠 Score: {round(sc,2)}")
+    st.write(f"🧠 Score: {round(s,2)}")
 
     st.write(f"📊 Winrate: {round(winrate,2)}%")
     st.write(f"📈 Wins: {wins} | ❌ Losses: {losses}")
 
     if st.session_state.posicao:
-        st.warning(f"📌 Em operação: {st.session_state.posicao}")
+        st.warning(f"📌 Operação ativa: {st.session_state.posicao}")
 
     else:
-        st.info("⏳ Sem operação ativa")
+        st.info("⏳ Sem operação")
 
 else:
     st.warning("Robô desligado")
