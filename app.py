@@ -4,74 +4,70 @@ from twelvedata import TDClient
 from ta.trend import SMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
-from datetime import datetime, time
-import smtplib
-from email.mime.text import MIMEText
+from datetime import datetime
+import random
 
 # =========================
-# CONFIG
+# 🟩 CAMADA 1 - CONFIG
 # =========================
-st.set_page_config(page_title="🤖 Robô IA PRO v6", layout="centered")
-st.title("🤖 Robô Forex IA PRO v6 FINAL")
+st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
+st.title("🤖 ROBÔ FOREX IA v9 - COMPLETO")
 
 ligado = st.toggle("🔌 Ligar Robô", value=True)
+ativo = st.selectbox("📊 Ativo", ["EUR/USD", "GBP/USD"])
 
-ativos = ["EUR/USD", "GBP/USD"]
-ativo = st.selectbox("📊 Ativo", ativos)
-
-API_KEY = st.secrets["API_KEY"]
-EMAIL = st.secrets["EMAIL"]
-SENHA = st.secrets["SENHA"]
-
-td = TDClient(API_KEY)
+td = TDClient(st.secrets["API_KEY"])
 
 # =========================
-# MEMÓRIA
+# 🟨 CAMADA 2 - MEMÓRIA IA
 # =========================
 if "posicao" not in st.session_state:
     st.session_state.posicao = None
 
-if "historico" not in st.session_state:
-    st.session_state.historico = []
-
 if "erros" not in st.session_state:
     st.session_state.erros = []
 
-if "parametros" not in st.session_state:
-    st.session_state.parametros = {
-        "rsi_compra": 55,
-        "rsi_venda": 45
+if "ranking_global" not in st.session_state:
+    st.session_state.ranking_global = {
+        "TENDENCIA": 1.0,
+        "PRICE_ACTION": 1.0,
+        "REJEICAO": 1.0,
+        "MACD": 1.0
     }
 
 if "sequencia" not in st.session_state:
     st.session_state.sequencia = []
 
 # =========================
-# EMAIL
+# 🟥 CAMADA 8 - FASE DO MERCADO (NOVO)
 # =========================
-def enviar_email(msg):
-    try:
-        m = MIMEText(msg)
-        m["Subject"] = "🤖 Robô Forex IA"
-        m["From"] = EMAIL
-        m["To"] = EMAIL
-        s = smtplib.SMTP("smtp.gmail.com", 587)
-        s.starttls()
-        s.login(EMAIL, SENHA)
-        s.sendmail(EMAIL, EMAIL, m.as_string())
-        s.quit()
-    except:
-        pass
+def fase_mercado():
+    hora = datetime.now().hour
+    dia = datetime.now().weekday()
+
+    if dia >= 5:
+        return "TREINO"  # fim de semana
+
+    if hora < 6:
+        return "INATIVO"
+
+    if 6 <= hora < 8:
+        return "BACKTEST"
+
+    if hora >= 8:
+        return "OPERACAO"
+
+    return "PROTECAO"
 
 # =========================
-# DADOS
+# 🟦 CAMADA 3 - DADOS
 # =========================
 def pegar_dados():
     try:
-        df = td.time_series(symbol=ativo, interval="5min", outputsize=300).as_pandas()
+        df = td.time_series(symbol=ativo, interval="5min", outputsize=250).as_pandas()
         df = df[::-1].reset_index(drop=True)
 
-        for c in ["open","high","low","close"]:
+        for c in ["open", "high", "low", "close"]:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
         return df.dropna()
@@ -79,7 +75,7 @@ def pegar_dados():
         return None
 
 # =========================
-# INDICADORES
+# 🟩 INDICADORES
 # =========================
 def indicadores(df):
     df["MA9"] = SMAIndicator(df["close"], 9).sma_indicator()
@@ -89,12 +85,13 @@ def indicadores(df):
     return df
 
 # =========================
-# ESTRATÉGIAS
+# 🟨 CAMADA 4 - ESTRATÉGIAS
 # =========================
 def tendencia(df):
-    if df["MA9"].iloc[-1] > df["MA21"].iloc[-1] and df["RSI"].iloc[-1] > st.session_state.parametros["rsi_compra"]:
+    rsi = df["RSI"].iloc[-1]
+    if df["MA9"].iloc[-1] > df["MA21"].iloc[-1] and rsi > 55:
         return "COMPRA"
-    if df["MA9"].iloc[-1] < df["MA21"].iloc[-1] and df["RSI"].iloc[-1] < st.session_state.parametros["rsi_venda"]:
+    if df["MA9"].iloc[-1] < df["MA21"].iloc[-1] and rsi < 45:
         return "VENDA"
     return "AGUARDAR"
 
@@ -112,12 +109,10 @@ def price_action(df):
 def rejeicao(df):
     c = df.iloc[-1]
     corpo = abs(c["close"] - c["open"])
-    pavio_inf = c["open"] - c["low"]
-    pavio_sup = c["high"] - c["open"]
 
-    if pavio_inf > corpo * 2:
+    if (c["open"] - c["low"]) > corpo * 2:
         return "COMPRA"
-    if pavio_sup > corpo * 2:
+    if (c["high"] - c["open"]) > corpo * 2:
         return "VENDA"
     return "AGUARDAR"
 
@@ -130,7 +125,30 @@ def macd(df):
     return "AGUARDAR"
 
 # =========================
-# IA ESCOLHE MELHOR ESTRATÉGIA
+# 🟪 CAMADA 9 - IA AVANÇADA (NOVO)
+# =========================
+def ajustar_rsi(df):
+    volatilidade = df["ATR"].iloc[-1]
+    if volatilidade > 0.001:
+        return 60, 40
+    return 55, 45
+
+def score_mercado(df):
+    atr = df["ATR"].iloc[-1]
+    if atr > 0.002:
+        return "FORTE"
+    if atr < 0.0005:
+        return "FRACO"
+    return "NORMAL"
+
+def atualizar_pesos(estrategia, resultado):
+    if resultado == "LOSS":
+        st.session_state.ranking_global[estrategia] *= 0.95
+    else:
+        st.session_state.ranking_global[estrategia] *= 1.02
+
+# =========================
+# 🧠 IA ESCOLHE ESTRATÉGIA
 # =========================
 def escolher_estrategia(df):
 
@@ -144,10 +162,11 @@ def escolher_estrategia(df):
     ranking = {}
 
     for nome, func in estrategias.items():
+
         wins = 0
         total = 0
 
-        for i in range(50, len(df)-1):
+        for i in range(40, len(df)-1):
             sub = df.iloc[:i]
             sinal = func(sub)
 
@@ -162,19 +181,23 @@ def escolher_estrategia(df):
             if (sinal == "COMPRA" and prox > preco) or (sinal == "VENDA" and prox < preco):
                 wins += 1
 
-        ranking[nome] = wins / total if total else 0
+        base = wins / total if total > 0 else 0
+        ranking[nome] = base * st.session_state.ranking_global[nome]
 
     melhor = max(ranking, key=ranking.get)
+
     return melhor, ranking
 
 # =========================
-# BACKTEST
+# 🟫 BACKTEST
 # =========================
 def backtest(df):
+
     wins = 0
     losses = 0
 
-    for i in range(50, len(df)-1):
+    for i in range(40, len(df)-1):
+
         sub = df.iloc[:i]
         melhor, _ = escolher_estrategia(sub)
 
@@ -195,28 +218,28 @@ def backtest(df):
 
         if (sinal == "COMPRA" and prox > preco) or (sinal == "VENDA" and prox < preco):
             wins += 1
+            atualizar_pesos(melhor, "WIN")
         else:
             losses += 1
-            st.session_state.erros.append({
-                "tipo": sinal,
-                "preco": preco
-            })
+            atualizar_pesos(melhor, "LOSS")
 
     total = wins + losses
     return wins, losses, (wins/total*100 if total else 0)
 
 # =========================
-# EXECUÇÃO
+# 🟦 EXECUÇÃO PRINCIPAL
 # =========================
 if ligado:
 
     df = pegar_dados()
 
-    if df is None:
-        st.write("Carregando...")
-    else:
+    if df is not None:
 
         df = indicadores(df)
+
+        fase = fase_mercado()
+
+        rsi_compra, rsi_venda = ajustar_rsi(df)
 
         melhor, ranking = escolher_estrategia(df)
 
@@ -229,63 +252,59 @@ if ligado:
 
         sinal = mapa[melhor](df)
         preco = df["close"].iloc[-1]
+
+        # =========================
+        # 🛑 CONTROLE DE FASE
+        # =========================
+        if fase != "OPERACAO":
+            sinal = "AGUARDAR"
+
+        # =========================
+        # 📊 PAINEL
+        # =========================
+        st.markdown("## 📊 PAINEL IA COMPLETO")
+
+        st.write("📊 Ativo:", ativo)
+        st.write("💰 Preço:", preco)
+        st.write("🧠 Estratégia:", melhor)
+        st.write("📌 Fase:", fase)
+        st.write("📢 Sinal:", sinal)
+
+        st.markdown("## 📈 Ranking IA")
+        for k,v in ranking.items():
+            st.write(k, round(v,3))
+
+        st.markdown("## 🧠 IA GLOBAL PESOS")
+        st.write(st.session_state.ranking_global)
+
+        # =========================
+        # 📌 OPERAÇÃO
+        # =========================
         atr = df["ATR"].iloc[-1]
 
-        st.markdown("## 🧠 IA Estratégica")
-        st.write("Estratégia atual:", melhor)
-
-        for k,v in ranking.items():
-            st.write(f"{k}: {v:.2f}")
-
-        st.markdown("## 📊 Mercado")
-        st.write("Preço:", preco)
-        st.write("Sinal:", sinal)
-
         if sinal != "AGUARDAR" and st.session_state.posicao is None:
-
-            sl = preco - atr if sinal == "COMPRA" else preco + atr
-            tp = preco + atr*2 if sinal == "COMPRA" else preco - atr*2
 
             st.session_state.posicao = {
                 "tipo": sinal,
                 "entrada": preco,
-                "tp": tp,
-                "sl": sl
+                "tp": preco + atr*2 if sinal == "COMPRA" else preco - atr*2,
+                "sl": preco - atr if sinal == "COMPRA" else preco + atr
             }
 
-            enviar_email(f"{sinal} {ativo} {preco}")
+        st.markdown("## 📌 OPERAÇÃO")
 
         if st.session_state.posicao:
-
-            st.markdown("## 📌 Operação ativa")
             st.write(st.session_state.posicao)
 
-            atual = preco
+        # =========================
+        # 📊 BACKTEST
+        # =========================
+        w,l,wr = backtest(df)
 
-            if st.session_state.posicao["tipo"] == "COMPRA":
-                if atual <= st.session_state.posicao["sl"]:
-                    resultado = "LOSS"
-                elif atual >= st.session_state.posicao["tp"]:
-                    resultado = "WIN"
-                else:
-                    resultado = None
-
-            else:
-                if atual >= st.session_state.posicao["sl"]:
-                    resultado = "LOSS"
-                elif atual <= st.session_state.posicao["tp"]:
-                    resultado = "WIN"
-                else:
-                    resultado = None
-
-            if resultado:
-                st.session_state.sequencia.append(resultado)
-                st.write("Resultado:", resultado)
-                st.session_state.posicao = None
-
-        st.markdown("## 📊 Backtest")
-        w, l, wr = backtest(df)
-        st.write(f"Wins: {w} | Losses: {l} | Winrate: {wr:.2f}%")
+        st.markdown("## 📊 BACKTEST")
+        st.write("Wins:", w)
+        st.write("Losses:", l)
+        st.write("Winrate:", round(wr,2))
 
 else:
     st.warning("Robô desligado")
