@@ -3,7 +3,7 @@ from streamlit_autorefresh import st_autorefresh
 from robo import executar_robo
 
 # =========================
-# CONFIG
+# CONFIGURAÇÃO
 # =========================
 st.set_page_config(page_title="Robô Forex IA", layout="centered")
 
