@@ -9,7 +9,6 @@ from streamlit_autorefresh import st_autorefresh
 import smtplib
 from email.mime.text import MIMEText
 import requests
-import plotly.graph_objects as go
 
 # =========================
 # CONFIG
@@ -23,7 +22,7 @@ st.title(f"🤖 Robô Forex IA PRO - {ativo}")
 st_autorefresh(interval=60000, key="refresh")
 
 # =========================
-# BOTÃO LIGA/DESLIGA
+# LIGA / DESLIGA
 # =========================
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
@@ -61,7 +60,7 @@ def dados():
     df = td.time_series(
         symbol=ativo,
         interval="5min",
-        outputsize=300
+        outputsize=200
     ).as_pandas()
 
     df = df[::-1].reset_index(drop=True)
@@ -132,55 +131,6 @@ def noticias():
         return []
 
 # =========================
-# BACKTEST 7 DIAS (REAL SIMPLIFICADO)
-# =========================
-def backtest(df):
-
-    df = df.tail(200)
-
-    wins = 0
-    losses = 0
-
-    for i in range(50, len(df)):
-
-        price = df["close"].iloc[i]
-        prev = df["close"].iloc[i-1]
-
-        if price > prev:
-            wins += 1
-        else:
-            losses += 1
-
-    total = wins + losses
-    winrate = round((wins / total) * 100, 2) if total > 0 else 0
-
-    return wins, losses, winrate
-
-# =========================
-# GRÁFICO M5 (CANDLESTICK)
-# =========================
-def grafico(df):
-
-    df = df.tail(60)
-
-    fig = go.Figure(data=[
-        go.Candlestick(
-            x=df.index,
-            open=df["open"],
-            high=df["high"],
-            low=df["low"],
-            close=df["close"]
-        )
-    ])
-
-    fig.update_layout(
-        title=f"📊 Gráfico M5 - {ativo}",
-        height=450
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-# =========================
 # RUN
 # =========================
 if ligado:
@@ -189,10 +139,8 @@ if ligado:
     sinal, preco, stop, alvo, horario, sc = analisar(df)
     news = noticias()
 
-    w, l, wr = backtest(df)
-
     # =========================
-    # PAINEL PRINCIPAL
+    # PAINEL
     # =========================
     st.markdown("## 📊 Painel do Robô")
 
@@ -202,15 +150,6 @@ if ligado:
     st.write(f"📌 Sinal: {sinal}")
     st.write(f"🧠 Score IA: {sc}")
     st.write(f"🕒 Horário: {horario}")
-
-    # =========================
-    # BACKTEST
-    # =========================
-    st.markdown("## 📈 Backtest (7 dias simulado)")
-
-    st.write(f"✅ Wins: {w}")
-    st.write(f"❌ Losses: {l}")
-    st.write(f"📊 Winrate: {wr}%")
 
     # =========================
     # ALERTAS
@@ -227,15 +166,9 @@ if ligado:
         st.info("⏳ Aguardando entrada")
 
     # =========================
-    # GRÁFICO
-    # =========================
-    st.markdown("## 📈 Gráfico M5")
-    grafico(df)
-
-    # =========================
     # NOTÍCIAS
     # =========================
-    st.markdown("## 📰 Notícias")
+    st.markdown("## 📰 Notícias do Mercado")
 
     if news:
         for n in news:
