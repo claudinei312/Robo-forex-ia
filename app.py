@@ -6,6 +6,7 @@ from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
+import matplotlib.pyplot as plt
 import smtplib
 from email.mime.text import MIMEText
 import requests
@@ -15,14 +16,10 @@ import requests
 # =========================
 st.set_page_config(page_title="Robô IA PRO", layout="centered")
 
-st.title("🤖 Robô Forex IA PRO LEVEL")
+ativo = "EUR/USD"
+st.title(f"🤖 Robô Forex IA PRO - {ativo}")
 
 st_autorefresh(interval=60000, key="refresh")
-
-# =========================
-# BOTÃO ON/OFF
-# =========================
-ligado = st.toggle("🔌 Ligar Robô", value=True)
 
 # =========================
 # SECRETS
@@ -31,25 +28,21 @@ API_KEY = st.secrets["API_KEY"]
 EMAIL = st.secrets["EMAIL"]
 SENHA = st.secrets["SENHA"]
 
-ativo = "EUR/USD"
 td = TDClient(API_KEY)
 
 # =========================
-# ESTADO DO ROBÔ (IA STOP)
+# ESTADO
 # =========================
-if "trades" not in st.session_state:
-    st.session_state.trades = []
-
-if "bloqueado" not in st.session_state:
-    st.session_state.bloqueado = False
+if "entrada_hora" not in st.session_state:
+    st.session_state.entrada_hora = None
 
 # =========================
 # EMAIL
 # =========================
-def email(msg):
+def enviar_email(msg):
     try:
         m = MIMEText(msg)
-        m["Subject"] = "🤖 ROBÔ ALERTA"
+        m["Subject"] = "🤖 ROBÔ FOREX"
         m["From"] = EMAIL
         m["To"] = EMAIL
 
@@ -68,7 +61,7 @@ def dados():
     df = td.time_series(
         symbol=ativo,
         interval="5min",
-        outputsize=200
+        outputsize=100
     ).as_pandas()
 
     df = df[::-1].reset_index(drop=True)
@@ -79,46 +72,6 @@ def dados():
     return df.dropna()
 
 # =========================
-# STOP SYSTEM (IA)
-# =========================
-def verificar_stop():
-    trades = st.session_state.trades
-
-    if len(trades) >= 1 and trades[-1] == "LOSS":
-        st.session_state.bloqueado = True
-        return "STOP DIA (LOSS 1)"
-
-    if len(trades) >= 3:
-        ultimos = trades[-3:]
-
-        if ultimos[0] == "WIN" and ultimos[1] == "WIN" and ultimos[2] == "LOSS":
-            st.session_state.bloqueado = True
-            return "STOP (WIN WIN LOSS)"
-
-        if ultimos == ["WIN", "WIN", "WIN"]:
-            st.session_state.trades = []
-
-    return None
-
-# =========================
-# IA SCORE
-# =========================
-def score(rsi, ma9, ma21, ma200):
-    s = 50
-
-    if ma9 > ma21:
-        s += 10
-    else:
-        s -= 10
-
-    if rsi > 55:
-        s += 15
-    elif rsi < 45:
-        s -= 15
-
-    return s
-
-# =========================
 # ESTRATÉGIA
 # =========================
 def analisar(df):
@@ -127,80 +80,93 @@ def analisar(df):
     df["MA21"] = SMAIndicator(df["close"], 21).sma_indicator()
     df["MA200"] = SMAIndicator(df["close"], 200).sma_indicator()
     df["RSI"] = RSIIndicator(df["close"], 14).rsi()
+    df["ATR"] = AverageTrueRange(df["high"], df["low"], df["close"], 14).average_true_range()
 
     preco = df["close"].iloc[-1]
-    rsi = df["RSI"].iloc[-1]
     ma9 = df["MA9"].iloc[-1]
     ma21 = df["MA21"].iloc[-1]
     ma200 = df["MA200"].iloc[-1]
+    rsi = df["RSI"].iloc[-1]
 
     suporte = df["low"].rolling(20).min().iloc[-1]
     resistencia = df["high"].rolling(20).max().iloc[-1]
 
     horario = datetime.now().strftime("%H:%M:%S")
 
-    sc = score(rsi, ma9, ma21, ma200)
+    if rsi > 55 and ma9 > ma21 and preco > ma200:
+        return "COMPRA", preco, suporte, horario
 
-    if sc > 70 and preco > ma200:
-        return "COMPRA", preco, suporte, preco + (preco - suporte) * 2, horario, sc
+    if rsi < 45 and ma9 < ma21 and preco < ma200:
+        return "VENDA", preco, resistencia, horario
 
-    if sc < 30 and preco < ma200:
-        return "VENDA", preco, resistencia, preco - (resistencia - preco) * 2, horario, sc
-
-    return "AGUARDAR", preco, 0, 0, horario, sc
+    return "AGUARDAR", preco, 0, horario
 
 # =========================
-# BACKTEST SIMPLES 7 DIAS (BASE)
+# NOTÍCIAS
 # =========================
-def backtest(df):
-    df = df.tail(200)
-
-    wins = 0
-    losses = 0
-
-    for i in range(50, len(df)):
-        if df["close"].iloc[i] > df["close"].iloc[i-1]:
-            wins += 1
-        else:
-            losses += 1
-
-    return wins, losses
+def noticias():
+    try:
+        url = f"https://api.twelvedata.com/news?symbol={ativo}&apikey={API_KEY}"
+        r = requests.get(url).json()
+        return r.get("data", [])[:5]
+    except:
+        return []
 
 # =========================
-# EXECUÇÃO
+# GRÁFICO M5
 # =========================
-if ligado:
+def grafico(df):
+    df = df.tail(30)
 
-    stop_msg = verificar_stop()
+    cores = ["green" if c >= o else "red" for c, o in zip(df["close"], df["open"])]
 
-    if st.session_state.bloqueado:
-        st.error("⛔ ROBÔ BLOQUEADO PELO SISTEMA DE RISCO")
-        st.warning(stop_msg if stop_msg else "Aguardando próximo dia")
-        st.stop()
+    fig, ax = plt.subplots()
 
-    df = dados()
-    sinal, preco, stop, alvo, horario, sc = analisar(df)
+    ax.plot(df["close"].values, color="blue")
 
-    w, l = backtest(df)
+    ax.set_title("📈 Movimento M5 (últimas velas)")
+    st.pyplot(fig)
 
-    st.markdown("## 📊 PAINEL")
-    st.write(f"💰 {preco}")
-    st.write(f"📌 {sinal}")
-    st.write(f"🧠 Score IA: {sc}")
-    st.write(f"📊 Backtest W/L: {w}/{l}")
-    st.write(f"🕒 {horario}")
+# =========================
+# RUN
+# =========================
+df = dados()
+sinal, preco, nivel, horario = analisar(df)
+news = noticias()
 
-    # =========================
-    # REGISTRO IA
-    # =========================
-    if sinal != "AGUARDAR":
+# =========================
+# PAINEL
+# =========================
+st.markdown("## 📊 PAINEL DO MERCADO")
 
-        st.session_state.trades.append("WIN")  # simulação inicial
+st.write(f"💰 Preço atual: {preco}")
+st.write(f"📌 Sinal: {sinal}")
+st.write(f"🕒 Horário do sinal: {horario}")
+st.write(f"🧠 Ativo: {ativo}")
 
-        st.success(f"🚨 {sinal} detectado")
+# entrada
+if sinal != "AGUARDAR" and st.session_state.entrada_hora is None:
+    st.session_state.entrada_hora = horario
+    enviar_email(f"{sinal} detectado em {ativo} preço {preco}")
 
-    else:
-        st.info("⏳ Aguardando entrada")
+st.write(f"⏱ Última entrada: {st.session_state.entrada_hora}")
 
+# =========================
+# GRÁFICO
+# =========================
+st.markdown("## 📈 Gráfico M5")
+grafico(df)
+
+# =========================
+# NOTÍCIAS
+# =========================
+st.markdown("## 📰 Notícias do Ativo")
+
+if news:
+    for n in news:
+        st.write("•", n.get("title"))
 else:
-    st.warning("⛔ Robô desligado")
+    st.write("Sem notícias no momento")
+
+# alerta forte
+st.warning("⚠️ Monitorando impacto de notícias em tempo real")
