@@ -6,13 +6,13 @@ from ta.momentum import RSIIndicator
 from datetime import datetime
 
 # =========================
-# CRIA CLIENT COM SEGURANÇA
+# CLIENTE SEGURA API
 # =========================
 def criar_client():
-    api_key = st.secrets.get("API_KEY", None)
+    api_key = st.secrets.get("4b17399dcf214533abd7d72ea416f1df")
 
     if not api_key:
-        raise Exception("❌ API_KEY não encontrada nos Secrets do Streamlit")
+        raise Exception("API_KEY não encontrada nos Secrets")
 
     return TDClient(api_key)
 
@@ -25,15 +25,15 @@ def pegar_dados():
         td = criar_client()
 
         ts = td.time_series(
-            symbol="EUR/USD",
+            symbol="EUR/USD",   # 🔥 IMPORTANTE: formato correto
             interval="5min",
             outputsize=200
         ).as_pandas()
 
         ts = ts[::-1].reset_index(drop=True)
 
-        for col in ['open', 'high', 'low', 'close']:
-            ts[col] = pd.to_numeric(ts[col], errors='coerce')
+        for col in ["open", "high", "low", "close"]:
+            ts[col] = pd.to_numeric(ts[col], errors="coerce")
 
         return ts.dropna()
 
@@ -53,35 +53,10 @@ def executar_robo():
         return "❌ Erro ao buscar dados da API"
 
     # indicadores
-    data['MA9'] = SMAIndicator(data['close'], 9).sma_indicator()
-    data['MA21'] = SMAIndicator(data['close'], 21).sma_indicator()
-    data['RSI'] = RSIIndicator(data['close'], 14).rsi()
+    data["MA9"] = SMAIndicator(data["close"], 9).sma_indicator()
+    data["MA21"] = SMAIndicator(data["close"], 21).sma_indicator()
+    data["RSI"] = RSIIndicator(data["close"], 14).rsi()
 
-    preco = data['close'].iloc[-1]
-    ma9 = data['MA9'].iloc[-1]
-    ma21 = data['MA21'].iloc[-1]
-    rsi = data['RSI'].iloc[-1]
-
-    horario = datetime.now().strftime("%H:%M:%S")
-
-    # sinal
-    sinal = "AGUARDAR"
-
-    if rsi > 55 and ma9 > ma21:
-        sinal = "COMPRA"
-    elif rsi < 45 and ma9 < ma21:
-        sinal = "VENDA"
-
-    # saída
-    mensagem = f"""
-🤖 ROBÔ FOREX IA
-💰 Preço: {preco}
-📊 RSI: {rsi:.2f}
-📈 MA9: {ma9:.5f}
-📉 MA21: {ma21:.5f}
-
-📌 SINAL: {sinal}
-🕒 HORÁRIO: {horario}
-"""
-
-    return mensagem
+    preco = data["close"].iloc[-1]
+    ma9 = data["MA9"].iloc[-1]
+    ma21 = data["MA21"].iloc[-1]
