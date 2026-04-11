@@ -44,7 +44,7 @@ if "bias" not in st.session_state:
 def enviar_email(msg):
     try:
         m = MIMEText(msg)
-        m["Subject"] = "🤖 Robô Forex"
+        m["Subject"] = "🤖 Robô Forex IA"
         m["From"] = EMAIL
         m["To"] = EMAIL
 
@@ -57,19 +57,17 @@ def enviar_email(msg):
         pass
 
 # =========================
-# MERCADO FECHADO
+# MERCADO + CRONÔMETRO
 # =========================
 def mercado_fechado():
-    dia = datetime.now().weekday()
-    return dia >= 5  # sábado e domingo
+    return datetime.now().weekday() >= 5
 
 def tempo_abertura():
     agora = datetime.now()
     dias = (7 - agora.weekday()) % 7
     if dias == 0:
         dias = 1
-    prox = agora + timedelta(days=dias)
-    return prox - agora
+    return timedelta(days=dias)
 
 # =========================
 # DADOS
@@ -93,13 +91,13 @@ def pegar_dados():
 # =========================
 def noticias():
     return {
-        "EUR/USD": "EUR reage a dados econômicos",
-        "GBP/USD": "GBP instável no mercado",
-        "NASDAQ": "Tech volátil com juros"
-    }.get(ativo, "Sem impacto relevante")
+        "EUR/USD": "EUR reage a dados econômicos da zona do euro",
+        "GBP/USD": "GBP instável com volatilidade política",
+        "NASDAQ": "Tecnologia sensível a juros nos EUA"
+    }.get(ativo, "Sem notícias relevantes no momento")
 
 # =========================
-# IA + DIAGNÓSTICO
+# IA
 # =========================
 def analisar(df):
 
@@ -142,7 +140,7 @@ def sinal(score):
     return "AGUARDAR"
 
 # =========================
-# BACKTEST + STOP
+# BACKTEST
 # =========================
 def backtest(preco):
 
@@ -194,12 +192,6 @@ def stats():
 # =========================
 if ligado:
 
-    if mercado_fechado():
-        st.error("⛔ Mercado FECHADO")
-        st.write("⏳ Abre em:")
-        st.write(tempo_abertura())
-        st.stop()
-
     df = pegar_dados()
     score, preco, atr, diag = analisar(df)
     sig = sinal(score)
@@ -213,12 +205,8 @@ if ligado:
     # =========================
     if sig != "AGUARDAR" and st.session_state.posicao is None:
 
-        if sig == "COMPRA":
-            sl = preco - atr
-            tp = preco + (atr * 2)
-        else:
-            sl = preco + atr
-            tp = preco - (atr * 2)
+        sl = preco - atr if sig == "COMPRA" else preco + atr
+        tp = preco + (atr * 2) if sig == "COMPRA" else preco - (atr * 2)
 
         st.session_state.posicao = {
             "tipo": sig,
@@ -236,15 +224,14 @@ if ligado:
     st.write(f"📊 Ativo: {ativo}")
     st.write(f"💰 Preço: {preco}")
     st.write(f"🧠 Score: {round(score,2)}")
-
     st.write(f"📈 Winrate: {round(winrate,2)}%")
     st.write(f"🏆 Wins: {wins} | ❌ Losses: {losses}")
     st.write(f"🧠 IA Bias: {round(st.session_state.bias,2)}")
 
     # =========================
-    # NOTÍCIAS
+    # NOTÍCIAS (FIXO NO PAINEL)
     # =========================
-    st.markdown("## 📰 Notícias")
+    st.markdown("## 📰 Notícias do Mercado")
     st.info(noticias())
 
     # =========================
@@ -265,14 +252,19 @@ if ligado:
         st.write(d)
 
     # =========================
-    # POSIÇÃO LIMPA
+    # POSIÇÃO
     # =========================
     if st.session_state.posicao:
         st.markdown("## 📌 Operação ativa")
-        st.write(f"Tipo: {st.session_state.posicao['tipo']}")
-        st.write(f"Entrada: {st.session_state.posicao['entrada']}")
-        st.write(f"TP: {st.session_state.posicao['tp']}")
-        st.write(f"SL: {st.session_state.posicao['sl']}")
+        st.write(st.session_state.posicao)
+
+    # =========================
+    # CRONÔMETRO (SEM TRAVAR ROBÔ)
+    # =========================
+    if mercado_fechado():
+        st.warning("⛔ Mercado fechado")
+        st.write("⏳ Próxima abertura em:")
+        st.write(tempo_abertura())
 
 else:
     st.warning("Robô desligado")
