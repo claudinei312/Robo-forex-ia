@@ -9,32 +9,31 @@ import smtplib
 from email.mime.text import MIMEText
 
 # =========================
-# CONFIG UI (CAMADA 2)
+# UI LAYOUT PRO
 # =========================
-st.set_page_config(page_title="Trading Desk IA", layout="wide")
+st.set_page_config(page_title="Trading IA Pro", layout="wide")
 
 st.markdown("""
-    <style>
-    .big-title {font-size:30px; font-weight:bold; color:#00ffcc;}
-    .card {padding:15px; border-radius:10px; background:#111827; margin-bottom:10px;}
-    .signal-buy {color:#00ff00; font-size:22px; font-weight:bold;}
-    .signal-sell {color:#ff3b3b; font-size:22px; font-weight:bold;}
-    .signal-wait {color:#ffd166; font-size:18px;}
-    </style>
+<style>
+.big {font-size:28px;font-weight:bold;color:#00ffcc;}
+.card {padding:15px;border-radius:10px;background:#111827;margin:5px;}
+.buy {color:#00ff00;font-size:20px;font-weight:bold;}
+.sell {color:#ff3b3b;font-size:20px;font-weight:bold;}
+.wait {color:#ffd166;font-size:18px;}
+</style>
 """, unsafe_allow_html=True)
 
-st.markdown("<div class='big-title'>🤖 IA TRADING DESK PRO</div>", unsafe_allow_html=True)
+st.markdown("<div class='big'>🤖 IA TRADING DESK PRO</div>", unsafe_allow_html=True)
 
 # =========================
-# ATIVOS (MULTI-ATIVO)
+# ATIVOS
 # =========================
 ativos = ["EUR/USD", "GBP/USD", "NASDAQ"]
 ativo = st.sidebar.selectbox("📊 Ativo", ativos)
-
-ligado = st.sidebar.toggle("🔌 Ligar IA", value=True)
+ligado = st.sidebar.toggle("🔌 Robô", value=True)
 
 # =========================
-# SECRETS
+# API
 # =========================
 API_KEY = st.secrets["API_KEY"]
 EMAIL = st.secrets["EMAIL"]
@@ -48,16 +47,16 @@ td = TDClient(API_KEY)
 if "trades" not in st.session_state:
     st.session_state.trades = []
 
+if "posicao" not in st.session_state:
+    st.session_state.posicao = None
+
 if "bias" not in st.session_state:
     st.session_state.bias = 1.0
-
-if "streak" not in st.session_state:
-    st.session_state.streak = 0
 
 # =========================
 # EMAIL
 # =========================
-def enviar_email(msg):
+def send_email(msg):
     try:
         m = MIMEText(msg)
         m["Subject"] = "IA TRADE ALERT"
@@ -76,35 +75,31 @@ def enviar_email(msg):
 # DADOS
 # =========================
 def get_data():
-
     df = td.time_series(
         symbol=ativo,
         interval="5min",
-        outputsize=120
+        outputsize=150
     ).as_pandas()
 
     df = df[::-1].reset_index(drop=True)
 
-    for c in ["open", "high", "low", "close"]:
+    for c in ["open","high","low","close"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
     return df.dropna()
 
 # =========================
-# NOTÍCIAS (FILTRO POR ATIVO)
+# NOTÍCIAS
 # =========================
-def noticias():
-
-    base = {
-        "EUR/USD": "EUR forte após dados econômicos da zona euro",
-        "GBP/USD": "GBP volátil com incertezas políticas",
-        "NASDAQ": "Tech sobe com expectativa de juros estáveis"
-    }
-
-    return base.get(ativo, "Mercado neutro")
+def news():
+    return {
+        "EUR/USD": "EUR fortalecido após dados econômicos",
+        "GBP/USD": "GBP volátil com incerteza política",
+        "NASDAQ": "Tech reage a juros estáveis"
+    }.get(ativo, "Mercado neutro")
 
 # =========================
-# IA SCORE EVOLUTIVA
+# IA SCORE
 # =========================
 def ai(df):
 
@@ -127,16 +122,14 @@ def ai(df):
     elif df["RSI"].iloc[-1] < 45:
         score -= 15
 
-    # IA EVOLUTIVA (sequência de erro)
     score *= st.session_state.bias
 
     return max(0, min(100, score)), price, df["ATR"].iloc[-1]
 
 # =========================
-# DECISÃO
+# SINAL
 # =========================
 def signal(score):
-
     if score >= 72:
         return "BUY"
     elif score <= 28:
@@ -144,30 +137,45 @@ def signal(score):
     return "WAIT"
 
 # =========================
-# IA EVOLUÇÃO (APRENDIZADO REAL)
+# BACKTEST COMPLETO
 # =========================
-def learn(result):
+def backtest(price):
 
-    if result == "LOSS":
-        st.session_state.streak -= 1
-        st.session_state.bias *= 0.97
+    pos = st.session_state.posicao
 
-    elif result == "WIN":
-        st.session_state.streak += 1
-        st.session_state.bias *= 1.01
+    if pos is None:
+        return
 
-    st.session_state.bias = max(0.7, min(1.3, st.session_state.bias))
+    tp = pos["tp"]
+    sl = pos["sl"]
+
+    result = None
+
+    if pos["type"] == "BUY":
+        if price >= tp:
+            result = "WIN"
+        elif price <= sl:
+            result = "LOSS"
+
+    if pos["type"] == "SELL":
+        if price <= tp:
+            result = "WIN"
+        elif price >= sl:
+            result = "LOSS"
+
+    if result:
+        st.session_state.trades.append(result)
+        st.session_state.posicao = None
 
 # =========================
-# PREVISÃO VELA
+# STATS
 # =========================
-def prediction(score):
-
-    if score > 60:
-        return "📈 Probabilidade de ALTA"
-    elif score < 40:
-        return "📉 Probabilidade de BAIXA"
-    return "⚖️ Mercado indefinido"
+def stats():
+    wins = st.session_state.trades.count("WIN")
+    losses = st.session_state.trades.count("LOSS")
+    total = wins + losses
+    winrate = (wins/total*100) if total > 0 else 50
+    return winrate, wins, losses
 
 # =========================
 # RUN
@@ -175,63 +183,79 @@ def prediction(score):
 if ligado:
 
     df = get_data()
-
     score, price, atr = ai(df)
-
     sig = signal(score)
 
-    # =========================
-    # IA EVOLUTIVA SIMPLES
-    # =========================
-    if len(st.session_state.trades) > 0:
-        learn(st.session_state.trades[-1])
+    backtest(price)
+
+    winrate, wins, losses = stats()
 
     # =========================
-    # PAINEL (DESK PROFISSIONAL)
+    # ENTRADA
+    # =========================
+    if sig != "WAIT" and st.session_state.posicao is None:
+
+        if sig == "BUY":
+            sl = price - atr
+            tp = price + (atr * 2)
+        else:
+            sl = price + atr
+            tp = price - (atr * 2)
+
+        st.session_state.posicao = {
+            "type": sig,
+            "entry": price,
+            "tp": tp,
+            "sl": sl
+        }
+
+        send_email(f"{sig} {ativo} {price}")
+
+    # =========================
+    # DASHBOARD
     # =========================
     col1, col2, col3 = st.columns(3)
 
     with col1:
         st.markdown("### 💱 Ativo")
         st.write(ativo)
-        st.write(f"Preço: {price}")
+        st.write(price)
 
     with col2:
         st.markdown("### 🧠 IA Score")
-        st.write(round(score, 2))
+        st.write(round(score,2))
         st.write(f"Bias: {round(st.session_state.bias,2)}")
 
     with col3:
-        st.markdown("### 📊 Mercado")
-        st.write(prediction(score))
+        st.markdown("### 📊 Estatísticas")
+        st.write(f"Winrate: {round(winrate,2)}%")
+        st.write(f"W: {wins} | L: {losses}")
 
     st.markdown("---")
 
     # =========================
-    # NOTÍCIA
+    # NOTÍCIAS
     # =========================
-    st.markdown("## 📰 Notícia do Ativo")
-    st.info(noticias())
+    st.markdown("## 📰 Notícias")
+    st.info(news())
 
     # =========================
     # SINAL
     # =========================
     if sig == "BUY":
-        st.markdown("<div class='signal-buy'>🟢 COMPRA</div>", unsafe_allow_html=True)
-        enviar_email(f"BUY {ativo} {price}")
+        st.markdown("<div class='buy'>🟢 COMPRA</div>", unsafe_allow_html=True)
 
     elif sig == "SELL":
-        st.markdown("<div class='signal-sell'>🔴 VENDA</div>", unsafe_allow_html=True)
-        enviar_email(f"SELL {ativo} {price}")
+        st.markdown("<div class='sell'>🔴 VENDA</div>", unsafe_allow_html=True)
 
     else:
-        st.markdown("<div class='signal-wait'>⏳ SEM ENTRADA SEGURA</div>", unsafe_allow_html=True)
+        st.markdown("<div class='wait'>⏳ SEM ENTRADA</div>", unsafe_allow_html=True)
 
     # =========================
-    # STATUS IA
+    # POSIÇÃO
     # =========================
-    st.markdown("---")
-    st.write(f"📊 Sequência (streak): {st.session_state.streak}")
+    if st.session_state.posicao:
+        st.write("📌 Operação ativa:", st.session_state.posicao)
 
 else:
     st.warning("Robô desligado")
