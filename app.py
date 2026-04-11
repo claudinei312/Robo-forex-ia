@@ -2,26 +2,26 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 from robo import executar_robo
 
+# =========================
+# CONFIGURAÇÃO DA PÁGINA
+# =========================
 st.set_page_config(page_title="Robô Forex IA", layout="centered")
 
-st.title("🤖 Robô Forex Inteligente com IA")
+st.title("🤖 Robô Forex Inteligente (Modo Vela 5min)")
 
-# atualiza a cada 5 min
-st_autorefresh(interval=300000)
+# =========================
+# AUTO REFRESH (A CADA 60s)
+# =========================
+st_autorefresh(interval=60000, key="refresh")
 
-import streamlit as st
-from streamlit_autorefresh import st_autorefresh
-from robo import executar_robo
-
-st.title("🤖 Robô Forex IA")
-
-# atualiza a cada 5 minutos (SEGURADO)
-st_autorefresh(interval=300000, key="refresh")
-
-if st.button("Rodar análise agora"):
+# =========================
+# EXECUTA ROBÔ
+# =========================
+try:
     resultado = executar_robo()
-    st.write(resultado)
-else:
-    st.info("Clique no botão para rodar o robô")
+    st.success("🟢 Robô ativo - monitorando mercado")
+    st.text(resultado)
 
-st.write(resultado)
+except Exception as e:
+    st.error("❌ Erro no robô")
+    st.exception(e)
