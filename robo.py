@@ -8,7 +8,9 @@ from ia_model import prever
 from aprendizado import salvar_trade, analisar_erro
 from email_service import enviar_email
 
-API_KEY = "COLOCA_SUA_API_AQUI"
+import streamlit as st
+
+API_KEY = st.secrets["4b17399dcf214533abd7d72ea416f1df"]
 
 td = TDClient(API_KEY)
 
