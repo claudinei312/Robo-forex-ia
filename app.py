@@ -12,15 +12,17 @@ import requests
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="Robô IA PRO", layout="centered")
+st.set_page_config(page_title="Robô Forex IA PRO", layout="centered")
 
 ativo = "EUR/USD"
+
 st.title(f"🤖 Robô Forex IA PRO - {ativo}")
 
+# atualiza a cada vela (60s visual)
 st_autorefresh(interval=60000, key="refresh")
 
 # =========================
-# TOGGLE
+# LIGA / DESLIGA
 # =========================
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
@@ -34,7 +36,7 @@ SENHA = st.secrets["SENHA"]
 td = TDClient(API_KEY)
 
 # =========================
-# MEMÓRIA IA (TRADES)
+# MEMÓRIA
 # =========================
 if "trades" not in st.session_state:
     st.session_state.trades = []
@@ -122,7 +124,7 @@ def analisar(df):
     return "AGUARDAR", preco, horario, sc
 
 # =========================
-# BACKTEST REAL (7 DIAS SIMPLIFICADO)
+# BACKTEST
 # =========================
 def backtest(df):
 
@@ -144,23 +146,25 @@ def backtest(df):
     return wins, losses, winrate
 
 # =========================
-# IA PÓS-ANÁLISE
+# IA DE ERROS
 # =========================
-def analisar_trade(entrada, saida, tipo):
+def diagnostico_erros(analises):
 
-    if tipo == "COMPRA":
-        if saida > entrada:
-            return "WIN - tendência favorável (compradores dominaram)"
-        else:
-            return "LOSS - reversão forte contra compra"
+    if len(analises) < 5:
+        return "📊 Coletando dados..."
 
-    if tipo == "VENDA":
-        if saida < entrada:
-            return "WIN - pressão vendedora dominante"
-        else:
-            return "LOSS - reversão contra venda"
+    losses = [a for a in analises if "LOSS" in a]
 
-    return "NEUTRO"
+    if len(losses) < 2:
+        return "🟢 Sem padrão de erro forte ainda"
+
+    reversao = sum("reversão" in a.lower() for a in losses)
+    tendencia = sum("tendência" in a.lower() for a in losses)
+
+    if reversao > tendencia:
+        return "⚠️ Erro principal: reversões → melhorar filtro de tendência (MA200)"
+
+    return "⚠️ Erro principal: tendência fraca → evitar lateralização"
 
 # =========================
 # RUN
@@ -169,6 +173,7 @@ if ligado:
 
     df = dados()
     sinal, preco, horario, sc = analisar(df)
+
     w, l, wr = backtest(df)
 
     # =========================
@@ -184,6 +189,14 @@ if ligado:
     st.write(f"🕒 Horário: {horario}")
 
     # =========================
+    # VELA ATUAL
+    # =========================
+    st.markdown("## 🕯️ Vela Atual (M5)")
+
+    st.write(f"📊 Movimento: {sinal}")
+    st.write(f"💰 Preço atual: {preco}")
+
+    # =========================
     # BACKTEST
     # =========================
     st.markdown("## 📈 Backtest (7 dias simulado)")
@@ -193,22 +206,16 @@ if ligado:
     st.write(f"📊 Winrate: {wr}%")
 
     # =========================
-    # ENTRADA + REGISTRO
+    # ENTRADA
     # =========================
     if sinal != "AGUARDAR":
 
         st.session_state.trades.append(sinal)
+        st.session_state.analises.append("WIN" if sc > 50 else "LOSS - reversão ou entrada fraca")
 
         st.success(f"🚨 {sinal} detectado")
 
         enviar_email(f"{sinal} {ativo} preço {preco} horário {horario}")
-
-        # simulação de saída futura (pós-análise)
-        saida_simulada = preco * 1.001 if sinal == "COMPRA" else preco * 0.999
-
-        analise = analisar_trade(preco, saida_simulada, sinal)
-
-        st.session_state.analises.append(analise)
 
     else:
         st.info("⏳ Aguardando entrada")
@@ -216,10 +223,17 @@ if ligado:
     # =========================
     # HISTÓRICO IA
     # =========================
-    st.markdown("## 🧠 IA Pós-Análise de Trades")
+    st.markdown("## 🧠 Histórico de IA")
 
     for a in st.session_state.analises[-5:]:
         st.write("•", a)
+
+    # =========================
+    # IA ERROS
+    # =========================
+    st.markdown("## 🧠 Diagnóstico Automático")
+
+    st.write(diagnostico_erros(st.session_state.analises))
 
 else:
     st.warning("⛔ Robô desligado")
