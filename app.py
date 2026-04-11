@@ -1,7 +1,4 @@
 import streamlit as st
-
-st.write("DEBUG API KEY:", repr(st.secrets.get("API_KEY")))
-import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 from robo import executar_robo
 
@@ -10,7 +7,7 @@ from robo import executar_robo
 # =========================
 st.set_page_config(page_title="Robô Forex IA", layout="centered")
 
-st.title("🤖 Robô Forex Inteligente (Estável)")
+st.title("🤖 Robô Forex Inteligente")
 
 # =========================
 # AUTO REFRESH (60s)
@@ -18,16 +15,13 @@ st.title("🤖 Robô Forex Inteligente (Estável)")
 st_autorefresh(interval=60000, key="refresh")
 
 # =========================
-# EXECUÇÃO SEGURA
+# EXECUÇÃO
 # =========================
 try:
     resultado = executar_robo()
 
-    if resultado:
-        st.success("🟢 Robô ativo")
-        st.text(resultado)
-    else:
-        st.warning("⚠️ Sem dados no momento")
+    st.success("🟢 Robô rodando normalmente")
+    st.text(resultado)
 
 except Exception as e:
     st.error("❌ Erro no robô")
