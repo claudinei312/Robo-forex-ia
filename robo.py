@@ -6,10 +6,10 @@ from ta.momentum import RSIIndicator
 from datetime import datetime
 
 # =========================
-# CRIA CLIENTE COM SEGURANÇA
+# CRIA CLIENT COM SEGURANÇA
 # =========================
 def criar_client():
-    api_key = st.secrets.get("4b17399dcf214533abd7d72ea416f1df", None)
+    api_key = st.secrets.get("API_KEY", None)
 
     if not api_key:
         raise Exception("❌ API_KEY não encontrada nos Secrets do Streamlit")
@@ -43,7 +43,7 @@ def pegar_dados():
 
 
 # =========================
-# ROBÔ PRINCIPAL
+# LÓGICA DO ROBÔ
 # =========================
 def executar_robo():
 
@@ -64,7 +64,7 @@ def executar_robo():
 
     horario = datetime.now().strftime("%H:%M:%S")
 
-    # lógica simples
+    # sinal
     sinal = "AGUARDAR"
 
     if rsi > 55 and ma9 > ma21:
@@ -72,16 +72,16 @@ def executar_robo():
     elif rsi < 45 and ma9 < ma21:
         sinal = "VENDA"
 
-    # saída do robô
+    # saída
     mensagem = f"""
-📊 ROBÔ FOREX IA
+🤖 ROBÔ FOREX IA
 💰 Preço: {preco}
-📈 RSI: {rsi:.2f}
-📉 MA9: {ma9:.5f}
+📊 RSI: {rsi:.2f}
+📈 MA9: {ma9:.5f}
 📉 MA21: {ma21:.5f}
 
-📌 Sinal: {sinal}
-🕒 Hora: {horario}
+📌 SINAL: {sinal}
+🕒 HORÁRIO: {horario}
 """
 
     return mensagem
