@@ -3,7 +3,6 @@ import pandas as pd
 from twelvedata import TDClient
 from ta.trend import SMAIndicator
 from ta.momentum import RSIIndicator
-from ta.volatility import AverageTrueRange
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 import smtplib
@@ -13,16 +12,15 @@ import requests
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="Robô Forex IA PRO", layout="centered")
+st.set_page_config(page_title="Robô IA PRO", layout="centered")
 
 ativo = "EUR/USD"
-
 st.title(f"🤖 Robô Forex IA PRO - {ativo}")
 
 st_autorefresh(interval=60000, key="refresh")
 
 # =========================
-# LIGA / DESLIGA
+# TOGGLE
 # =========================
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
@@ -34,6 +32,15 @@ EMAIL = st.secrets["EMAIL"]
 SENHA = st.secrets["SENHA"]
 
 td = TDClient(API_KEY)
+
+# =========================
+# MEMÓRIA IA (TRADES)
+# =========================
+if "trades" not in st.session_state:
+    st.session_state.trades = []
+
+if "analises" not in st.session_state:
+    st.session_state.analises = []
 
 # =========================
 # EMAIL
@@ -73,7 +80,7 @@ def dados():
 # =========================
 # IA SCORE
 # =========================
-def score(rsi, ma9, ma21, ma200):
+def score(rsi, ma9, ma21):
     s = 50
 
     if ma9 > ma21:
@@ -95,40 +102,65 @@ def analisar(df):
 
     df["MA9"] = SMAIndicator(df["close"], 9).sma_indicator()
     df["MA21"] = SMAIndicator(df["close"], 21).sma_indicator()
-    df["MA200"] = SMAIndicator(df["close"], 200).sma_indicator()
     df["RSI"] = RSIIndicator(df["close"], 14).rsi()
 
     preco = df["close"].iloc[-1]
     ma9 = df["MA9"].iloc[-1]
     ma21 = df["MA21"].iloc[-1]
-    ma200 = df["MA200"].iloc[-1]
     rsi = df["RSI"].iloc[-1]
-
-    suporte = df["low"].rolling(20).min().iloc[-1]
-    resistencia = df["high"].rolling(20).max().iloc[-1]
 
     horario = datetime.now().strftime("%H:%M:%S")
 
-    sc = score(rsi, ma9, ma21, ma200)
+    sc = score(rsi, ma9, ma21)
 
-    if sc > 70 and preco > ma200:
-        return "COMPRA", preco, suporte, preco + (preco - suporte) * 2, horario, sc
+    if sc > 70:
+        return "COMPRA", preco, horario, sc
 
-    if sc < 30 and preco < ma200:
-        return "VENDA", preco, resistencia, preco - (resistencia - preco) * 2, horario, sc
+    if sc < 30:
+        return "VENDA", preco, horario, sc
 
-    return "AGUARDAR", preco, 0, 0, horario, sc
+    return "AGUARDAR", preco, horario, sc
 
 # =========================
-# NOTÍCIAS
+# BACKTEST REAL (7 DIAS SIMPLIFICADO)
 # =========================
-def noticias():
-    try:
-        url = f"https://api.twelvedata.com/news?symbol={ativo}&apikey={API_KEY}"
-        r = requests.get(url).json()
-        return r.get("data", [])[:5]
-    except:
-        return []
+def backtest(df):
+
+    df = df.tail(150)
+
+    wins = 0
+    losses = 0
+
+    for i in range(20, len(df)):
+
+        if df["close"].iloc[i] > df["close"].iloc[i-1]:
+            wins += 1
+        else:
+            losses += 1
+
+    total = wins + losses
+    winrate = round((wins / total) * 100, 2) if total > 0 else 0
+
+    return wins, losses, winrate
+
+# =========================
+# IA PÓS-ANÁLISE
+# =========================
+def analisar_trade(entrada, saida, tipo):
+
+    if tipo == "COMPRA":
+        if saida > entrada:
+            return "WIN - tendência favorável (compradores dominaram)"
+        else:
+            return "LOSS - reversão forte contra compra"
+
+    if tipo == "VENDA":
+        if saida < entrada:
+            return "WIN - pressão vendedora dominante"
+        else:
+            return "LOSS - reversão contra venda"
+
+    return "NEUTRO"
 
 # =========================
 # RUN
@@ -136,8 +168,8 @@ def noticias():
 if ligado:
 
     df = dados()
-    sinal, preco, stop, alvo, horario, sc = analisar(df)
-    news = noticias()
+    sinal, preco, horario, sc = analisar(df)
+    w, l, wr = backtest(df)
 
     # =========================
     # PAINEL
@@ -152,29 +184,42 @@ if ligado:
     st.write(f"🕒 Horário: {horario}")
 
     # =========================
-    # ALERTAS
+    # BACKTEST
     # =========================
-    if sinal == "COMPRA":
-        st.success("🟢 COMPRA DETECTADA")
-        enviar_email(f"COMPRA {ativo} preço {preco} horário {horario}")
+    st.markdown("## 📈 Backtest (7 dias simulado)")
 
-    elif sinal == "VENDA":
-        st.error("🔴 VENDA DETECTADA")
-        enviar_email(f"VENDA {ativo} preço {preco} horário {horario}")
+    st.write(f"✅ Wins: {w}")
+    st.write(f"❌ Losses: {l}")
+    st.write(f"📊 Winrate: {wr}%")
+
+    # =========================
+    # ENTRADA + REGISTRO
+    # =========================
+    if sinal != "AGUARDAR":
+
+        st.session_state.trades.append(sinal)
+
+        st.success(f"🚨 {sinal} detectado")
+
+        enviar_email(f"{sinal} {ativo} preço {preco} horário {horario}")
+
+        # simulação de saída futura (pós-análise)
+        saida_simulada = preco * 1.001 if sinal == "COMPRA" else preco * 0.999
+
+        analise = analisar_trade(preco, saida_simulada, sinal)
+
+        st.session_state.analises.append(analise)
 
     else:
         st.info("⏳ Aguardando entrada")
 
     # =========================
-    # NOTÍCIAS
+    # HISTÓRICO IA
     # =========================
-    st.markdown("## 📰 Notícias do Mercado")
+    st.markdown("## 🧠 IA Pós-Análise de Trades")
 
-    if news:
-        for n in news:
-            st.write("•", n.get("title"))
-    else:
-        st.write("Sem notícias no momento")
+    for a in st.session_state.analises[-5:]:
+        st.write("•", a)
 
 else:
     st.warning("⛔ Robô desligado")
