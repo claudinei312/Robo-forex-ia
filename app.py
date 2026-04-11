@@ -4,36 +4,29 @@ from twelvedata import TDClient
 from ta.trend import SMAIndicator
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
-from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
 
 # =========================
-# UI LAYOUT PRO
+# CONFIG
 # =========================
-st.set_page_config(page_title="Trading IA Pro", layout="wide")
+st.set_page_config(page_title="IA Forex", layout="centered")
 
-st.markdown("""
-<style>
-.big {font-size:28px;font-weight:bold;color:#00ffcc;}
-.card {padding:15px;border-radius:10px;background:#111827;margin:5px;}
-.buy {color:#00ff00;font-size:20px;font-weight:bold;}
-.sell {color:#ff3b3b;font-size:20px;font-weight:bold;}
-.wait {color:#ffd166;font-size:18px;}
-</style>
-""", unsafe_allow_html=True)
+st.title("🤖 Robô Forex IA")
 
-st.markdown("<div class='big'>🤖 IA TRADING DESK PRO</div>", unsafe_allow_html=True)
+# =========================
+# BOTÃO LIGA / DESLIGA
+# =========================
+ligado = st.toggle("🔌 Ligar Robô", value=True)
 
 # =========================
 # ATIVOS
 # =========================
 ativos = ["EUR/USD", "GBP/USD", "NASDAQ"]
-ativo = st.sidebar.selectbox("📊 Ativo", ativos)
-ligado = st.sidebar.toggle("🔌 Robô", value=True)
+ativo = st.selectbox("📊 Ativo", ativos)
 
 # =========================
-# API
+# SECRETS
 # =========================
 API_KEY = st.secrets["API_KEY"]
 EMAIL = st.secrets["EMAIL"]
@@ -42,7 +35,7 @@ SENHA = st.secrets["SENHA"]
 td = TDClient(API_KEY)
 
 # =========================
-# MEMÓRIA IA
+# MEMÓRIA
 # =========================
 if "trades" not in st.session_state:
     st.session_state.trades = []
@@ -56,10 +49,10 @@ if "bias" not in st.session_state:
 # =========================
 # EMAIL
 # =========================
-def send_email(msg):
+def enviar_email(msg):
     try:
         m = MIMEText(msg)
-        m["Subject"] = "IA TRADE ALERT"
+        m["Subject"] = "🤖 ROBÔ ALERTA"
         m["From"] = EMAIL
         m["To"] = EMAIL
 
@@ -74,41 +67,43 @@ def send_email(msg):
 # =========================
 # DADOS
 # =========================
-def get_data():
+def pegar_dados():
+
     df = td.time_series(
         symbol=ativo,
         interval="5min",
-        outputsize=150
+        outputsize=120
     ).as_pandas()
 
     df = df[::-1].reset_index(drop=True)
 
-    for c in ["open","high","low","close"]:
+    for c in ["open", "high", "low", "close"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
     return df.dropna()
 
 # =========================
-# NOTÍCIAS
+# NOTÍCIAS SIMPLES
 # =========================
-def news():
+def noticias():
+
     return {
-        "EUR/USD": "EUR fortalecido após dados econômicos",
-        "GBP/USD": "GBP volátil com incerteza política",
-        "NASDAQ": "Tech reage a juros estáveis"
+        "EUR/USD": "EUR reage a dados econômicos",
+        "GBP/USD": "GBP instável no mercado",
+        "NASDAQ": "Tech segue volátil"
     }.get(ativo, "Mercado neutro")
 
 # =========================
 # IA SCORE
 # =========================
-def ai(df):
+def analisar(df):
 
     df["MA9"] = SMAIndicator(df["close"], 9).sma_indicator()
     df["MA21"] = SMAIndicator(df["close"], 21).sma_indicator()
     df["RSI"] = RSIIndicator(df["close"], 14).rsi()
     df["ATR"] = AverageTrueRange(df["high"], df["low"], df["close"], 14).average_true_range()
 
-    price = df["close"].iloc[-1]
+    preco = df["close"].iloc[-1]
 
     score = 50
 
@@ -124,22 +119,23 @@ def ai(df):
 
     score *= st.session_state.bias
 
-    return max(0, min(100, score)), price, df["ATR"].iloc[-1]
+    return max(0, min(100, score)), preco, df["ATR"].iloc[-1]
 
 # =========================
 # SINAL
 # =========================
-def signal(score):
+def sinal(score):
+
     if score >= 72:
-        return "BUY"
+        return "COMPRA"
     elif score <= 28:
-        return "SELL"
-    return "WAIT"
+        return "VENDA"
+    return "AGUARDAR"
 
 # =========================
-# BACKTEST COMPLETO
+# BACKTEST
 # =========================
-def backtest(price):
+def backtest(preco):
 
     pos = st.session_state.posicao
 
@@ -151,30 +147,41 @@ def backtest(price):
 
     result = None
 
-    if pos["type"] == "BUY":
-        if price >= tp:
+    if pos["tipo"] == "COMPRA":
+        if preco >= tp:
             result = "WIN"
-        elif price <= sl:
+        elif preco <= sl:
             result = "LOSS"
 
-    if pos["type"] == "SELL":
-        if price <= tp:
+    if pos["tipo"] == "VENDA":
+        if preco <= tp:
             result = "WIN"
-        elif price >= sl:
+        elif preco >= sl:
             result = "LOSS"
 
     if result:
         st.session_state.trades.append(result)
         st.session_state.posicao = None
 
+        # IA aprende com erro
+        if result == "LOSS":
+            st.session_state.bias *= 0.97
+        else:
+            st.session_state.bias *= 1.01
+
+        st.session_state.bias = max(0.7, min(1.3, st.session_state.bias))
+
 # =========================
 # STATS
 # =========================
 def stats():
+
     wins = st.session_state.trades.count("WIN")
     losses = st.session_state.trades.count("LOSS")
+
     total = wins + losses
-    winrate = (wins/total*100) if total > 0 else 50
+    winrate = (wins / total * 100) if total > 0 else 50
+
     return winrate, wins, losses
 
 # =========================
@@ -182,74 +189,66 @@ def stats():
 # =========================
 if ligado:
 
-    df = get_data()
-    score, price, atr = ai(df)
-    sig = signal(score)
+    df = pegar_dados()
 
-    backtest(price)
+    score, preco, atr = analisar(df)
+
+    sig = sinal(score)
+
+    backtest(preco)
 
     winrate, wins, losses = stats()
 
     # =========================
     # ENTRADA
     # =========================
-    if sig != "WAIT" and st.session_state.posicao is None:
+    if sig != "AGUARDAR" and st.session_state.posicao is None:
 
-        if sig == "BUY":
-            sl = price - atr
-            tp = price + (atr * 2)
+        if sig == "COMPRA":
+            sl = preco - atr
+            tp = preco + (atr * 2)
         else:
-            sl = price + atr
-            tp = price - (atr * 2)
+            sl = preco + atr
+            tp = preco - (atr * 2)
 
         st.session_state.posicao = {
-            "type": sig,
-            "entry": price,
+            "tipo": sig,
+            "entrada": preco,
             "tp": tp,
             "sl": sl
         }
 
-        send_email(f"{sig} {ativo} {price}")
+        enviar_email(f"{sig} {ativo} {preco}")
 
     # =========================
-    # DASHBOARD
+    # PAINEL
     # =========================
-    col1, col2, col3 = st.columns(3)
+    st.write(f"💱 Ativo: {ativo}")
+    st.write(f"💰 Preço: {preco}")
+    st.write(f"🧠 Score: {round(score,2)}")
 
-    with col1:
-        st.markdown("### 💱 Ativo")
-        st.write(ativo)
-        st.write(price)
+    st.write(f"📊 Winrate: {round(winrate,2)}%")
+    st.write(f"📈 Wins: {wins} | ❌ Losses: {losses}")
 
-    with col2:
-        st.markdown("### 🧠 IA Score")
-        st.write(round(score,2))
-        st.write(f"Bias: {round(st.session_state.bias,2)}")
-
-    with col3:
-        st.markdown("### 📊 Estatísticas")
-        st.write(f"Winrate: {round(winrate,2)}%")
-        st.write(f"W: {wins} | L: {losses}")
-
-    st.markdown("---")
+    st.write(f"🧠 IA Bias: {round(st.session_state.bias,2)}")
 
     # =========================
     # NOTÍCIAS
     # =========================
     st.markdown("## 📰 Notícias")
-    st.info(news())
+    st.info(noticias())
 
     # =========================
     # SINAL
     # =========================
-    if sig == "BUY":
-        st.markdown("<div class='buy'>🟢 COMPRA</div>", unsafe_allow_html=True)
+    if sig == "COMPRA":
+        st.success("🟢 COMPRA")
 
-    elif sig == "SELL":
-        st.markdown("<div class='sell'>🔴 VENDA</div>", unsafe_allow_html=True)
+    elif sig == "VENDA":
+        st.error("🔴 VENDA")
 
     else:
-        st.markdown("<div class='wait'>⏳ SEM ENTRADA</div>", unsafe_allow_html=True)
+        st.warning("⏳ AGUARDAR")
 
     # =========================
     # POSIÇÃO
