@@ -61,7 +61,7 @@ def enviar_email(msg):
         pass
 
 # =========================
-# MERCADO FECHADO + SEGUNDA
+# MERCADO FECHADO
 # =========================
 def mercado_status():
 
@@ -83,25 +83,21 @@ def mercado_status():
 
 
 def countdown(abertura):
-
     if abertura is None:
         return None
-
     agora = datetime.utcnow()
     diff = abertura - agora
-
     return f"{diff.seconds//3600}h {(diff.seconds%3600)//60}m"
 
 # =========================
-# NOTÍCIAS (mantido como você queria)
+# NOTÍCIAS
 # =========================
 def noticias():
-
     return [
-        "📉 USD com leve pressão no curto prazo",
-        "📊 EUR tentando recuperação contra dólar",
-        "⚠️ Possível alta volatilidade no mercado",
-        "🧠 Mercado sem tendência clara no momento"
+        "📉 USD sob leve pressão global",
+        "📊 EUR com recuperação técnica",
+        "⚠️ Alta volatilidade esperada",
+        "🧠 Mercado sem tendência clara"
     ]
 
 # =========================
@@ -130,8 +126,10 @@ def score(df):
     df["MA9"] = SMAIndicator(df["close"], 9).sma_indicator()
     df["MA21"] = SMAIndicator(df["close"], 21).sma_indicator()
     df["RSI"] = RSIIndicator(df["close"], 14).rsi()
+    df["ATR"] = AverageTrueRange(df["high"], df["low"], df["close"], 14).average_true_range()
 
     preco = df["close"].iloc[-1]
+    atr = df["ATR"].iloc[-1]
 
     s = 50
 
@@ -148,7 +146,7 @@ def score(df):
     s *= st.session_state.model_bias
     s = max(0, min(100, s))
 
-    return s, preco
+    return s, preco, atr
 
 # =========================
 # SINAL
@@ -157,14 +155,14 @@ def decidir(s):
 
     if s >= 72:
         return "COMPRA"
-    elif s <= 28:
+    if s <= 28:
         return "VENDA"
     return "AGUARDAR"
 
 # =========================
-# BACKTEST EM TEMPO REAL
+# BACKTEST PROFISSIONAL (TP/SL ATR)
 # =========================
-def backtest(preco):
+def backtest(preco, atr):
 
     pos = st.session_state.posicao
 
@@ -173,26 +171,36 @@ def backtest(preco):
 
     tipo = pos["tipo"]
     entrada = pos["entrada"]
+    sl = pos["sl"]
+    tp = pos["tp"]
 
     resultado = None
+    motivo = ""
 
     if tipo == "COMPRA":
 
-        if preco >= entrada * 1.0005:
+        if preco >= tp:
             resultado = "WIN"
-        elif preco <= entrada * 0.9995:
+            motivo = "TP atingido"
+        elif preco <= sl:
             resultado = "LOSS"
+            motivo = "Stop Loss atingido"
 
-    if tipo == "VENDA":
+    elif tipo == "VENDA":
 
-        if preco <= entrada * 0.9995:
+        if preco <= tp:
             resultado = "WIN"
-        elif preco >= entrada * 1.0005:
+            motivo = "TP atingido"
+        elif preco >= sl:
             resultado = "LOSS"
+            motivo = "Stop Loss atingido"
 
     if resultado:
 
         st.session_state.trades.append(resultado)
+
+        st.session_state.last_result = motivo
+
         st.session_state.posicao = None
 
 # =========================
@@ -217,31 +225,22 @@ if ligado:
 
     ativo_ok, abertura = mercado_status()
 
-    st.markdown("## 📊 Painel IA Forex")
-
-    # =========================
-    # NOTÍCIAS SEMPRE
-    # =========================
-    st.markdown("## 📰 Notícias")
+    st.markdown("## 📊 IA Forex Pro Dashboard")
 
     for n in noticias():
         st.write(n)
 
     if not ativo_ok:
-
         st.error("⛔ MERCADO FECHADO")
-
         st.warning(f"⏳ Abre em: {countdown(abertura)}")
-
-        st.info("🧠 IA em standby")
 
     df = dados()
 
-    s, preco = score(df)
+    s, preco, atr = score(df)
 
     sinal = decidir(s)
 
-    backtest(preco)
+    backtest(preco, atr)
 
     winrate, wins, losses = stats()
 
@@ -250,9 +249,19 @@ if ligado:
     # =========================
     if ativo_ok and sinal != "AGUARDAR" and st.session_state.posicao is None:
 
+        if sinal == "COMPRA":
+            sl = preco - atr
+            tp = preco + (atr * 2)
+
+        else:
+            sl = preco + atr
+            tp = preco - (atr * 2)
+
         st.session_state.posicao = {
             "tipo": sinal,
-            "entrada": preco
+            "entrada": preco,
+            "sl": sl,
+            "tp": tp
         }
 
         enviar_email(f"{sinal} {ativo} {preco}")
@@ -268,10 +277,10 @@ if ligado:
     st.write(f"📈 Wins: {wins} | ❌ Losses: {losses}")
 
     if st.session_state.posicao:
-        st.warning(f"📌 Operação ativa: {st.session_state.posicao}")
+        st.warning(f"📌 Operação: {st.session_state.posicao}")
 
-    else:
-        st.info("⏳ Sem operação")
+    if "last_result" in st.session_state:
+        st.info(f"📊 Último resultado: {st.session_state.last_result}")
 
 else:
     st.warning("Robô desligado")
