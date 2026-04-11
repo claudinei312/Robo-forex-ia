@@ -39,14 +39,14 @@ if "sequencia" not in st.session_state:
     st.session_state.sequencia = []
 
 # =========================
-# 🟥 CAMADA 8 - FASE DO MERCADO (NOVO)
+# 🟥 CAMADA 8 - FASE DO MERCADO
 # =========================
 def fase_mercado():
     hora = datetime.now().hour
     dia = datetime.now().weekday()
 
     if dia >= 5:
-        return "TREINO"  # fim de semana
+        return "TREINO"
 
     if hora < 6:
         return "INATIVO"
@@ -58,6 +58,21 @@ def fase_mercado():
         return "OPERACAO"
 
     return "PROTECAO"
+
+# =========================
+# 🆕 CAMADA - HORÁRIO SISTEMA
+# =========================
+def horario_sistema():
+    hora = datetime.now().hour
+    minuto = datetime.now().minute
+    dia = datetime.now().weekday()
+
+    return {
+        "backtest": hora == 6 and minuto >= 40,
+        "ajuste_ia": hora == 7,
+        "operacao_liberada": hora >= 8,
+        "fim_de_semana": dia >= 5
+    }
 
 # =========================
 # 🟦 CAMADA 3 - DADOS
@@ -85,7 +100,7 @@ def indicadores(df):
     return df
 
 # =========================
-# 🟨 CAMADA 4 - ESTRATÉGIAS
+# 🟨 ESTRATÉGIAS
 # =========================
 def tendencia(df):
     rsi = df["RSI"].iloc[-1]
@@ -125,21 +140,15 @@ def macd(df):
     return "AGUARDAR"
 
 # =========================
-# 🟪 CAMADA 9 - IA AVANÇADA (NOVO)
+# 🟪 IA ADAPTATIVA
 # =========================
 def ajustar_rsi(df):
-    volatilidade = df["ATR"].iloc[-1]
-    if volatilidade > 0.001:
-        return 60, 40
-    return 55, 45
-
-def score_mercado(df):
     atr = df["ATR"].iloc[-1]
     if atr > 0.002:
-        return "FORTE"
-    if atr < 0.0005:
-        return "FRACO"
-    return "NORMAL"
+        return 60, 40
+    if atr < 0.0008:
+        return 58, 42
+    return 55, 45
 
 def atualizar_pesos(estrategia, resultado):
     if resultado == "LOSS":
@@ -148,7 +157,23 @@ def atualizar_pesos(estrategia, resultado):
         st.session_state.ranking_global[estrategia] *= 1.02
 
 # =========================
-# 🧠 IA ESCOLHE ESTRATÉGIA
+# 🆕 RISCO
+# =========================
+def protecao_risco(sequencia):
+    if len(sequencia) >= 3:
+        ultimos = sequencia[-3:]
+        if ultimos.count("LOSS") >= 2:
+            return True
+    return False
+
+# =========================
+# 🆕 NOTÍCIAS
+# =========================
+def noticias():
+    return random.choice(["BAIXO", "MÉDIO", "ALTO"])
+
+# =========================
+# 🧠 ESCOLHA IA
 # =========================
 def escolher_estrategia(df):
 
@@ -162,7 +187,6 @@ def escolher_estrategia(df):
     ranking = {}
 
     for nome, func in estrategias.items():
-
         wins = 0
         total = 0
 
@@ -185,7 +209,6 @@ def escolher_estrategia(df):
         ranking[nome] = base * st.session_state.ranking_global[nome]
 
     melhor = max(ranking, key=ranking.get)
-
     return melhor, ranking
 
 # =========================
@@ -218,10 +241,8 @@ def backtest(df):
 
         if (sinal == "COMPRA" and prox > preco) or (sinal == "VENDA" and prox < preco):
             wins += 1
-            atualizar_pesos(melhor, "WIN")
         else:
             losses += 1
-            atualizar_pesos(melhor, "LOSS")
 
     total = wins + losses
     return wins, losses, (wins/total*100 if total else 0)
@@ -238,6 +259,8 @@ if ligado:
         df = indicadores(df)
 
         fase = fase_mercado()
+        status = horario_sistema()
+        impacto = noticias()
 
         rsi_compra, rsi_venda = ajustar_rsi(df)
 
@@ -254,28 +277,32 @@ if ligado:
         preco = df["close"].iloc[-1]
 
         # =========================
-        # 🛑 CONTROLE DE FASE
+        # 🔧 CONTROLES NOVOS
         # =========================
-        if fase != "OPERACAO":
+        if not status["operacao_liberada"]:
+            sinal = "AGUARDAR"
+
+        if impacto == "ALTO":
+            st.warning("📰 Notícia forte detectada")
+            sinal = "AGUARDAR"
+
+        if protecao_risco(st.session_state.sequencia):
+            st.warning("🛑 Proteção ativada")
             sinal = "AGUARDAR"
 
         # =========================
         # 📊 PAINEL
         # =========================
-        st.markdown("## 📊 PAINEL IA COMPLETO")
+        st.markdown("## 📊 PAINEL IA")
 
-        st.write("📊 Ativo:", ativo)
-        st.write("💰 Preço:", preco)
-        st.write("🧠 Estratégia:", melhor)
-        st.write("📌 Fase:", fase)
-        st.write("📢 Sinal:", sinal)
+        st.write("Ativo:", ativo)
+        st.write("Preço:", preco)
+        st.write("Estratégia:", melhor)
+        st.write("Fase:", fase)
+        st.write("Sinal:", sinal)
 
-        st.markdown("## 📈 Ranking IA")
-        for k,v in ranking.items():
-            st.write(k, round(v,3))
-
-        st.markdown("## 🧠 IA GLOBAL PESOS")
-        st.write(st.session_state.ranking_global)
+        st.markdown("## 📈 Ranking")
+        st.write(ranking)
 
         # =========================
         # 📌 OPERAÇÃO
@@ -292,9 +319,7 @@ if ligado:
             }
 
         st.markdown("## 📌 OPERAÇÃO")
-
-        if st.session_state.posicao:
-            st.write(st.session_state.posicao)
+        st.write(st.session_state.posicao)
 
         # =========================
         # 📊 BACKTEST
@@ -302,9 +327,7 @@ if ligado:
         w,l,wr = backtest(df)
 
         st.markdown("## 📊 BACKTEST")
-        st.write("Wins:", w)
-        st.write("Losses:", l)
-        st.write("Winrate:", round(wr,2))
+        st.write(w, l, wr)
 
 else:
     st.warning("Robô desligado")
