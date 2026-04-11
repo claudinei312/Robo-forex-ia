@@ -8,17 +8,16 @@ from streamlit_autorefresh import st_autorefresh
 import smtplib
 from email.mime.text import MIMEText
 import requests
+import time
 
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="Robô Forex IA PRO", layout="centered")
+st.set_page_config(page_title="Robô IA Evolutivo", layout="centered")
 
 ativo = "EUR/USD"
+st.title(f"🤖 Robô IA Evolutivo - {ativo}")
 
-st.title(f"🤖 Robô Forex IA PRO - {ativo}")
-
-# atualiza a cada vela (60s visual)
 st_autorefresh(interval=60000, key="refresh")
 
 # =========================
@@ -36,13 +35,19 @@ SENHA = st.secrets["SENHA"]
 td = TDClient(API_KEY)
 
 # =========================
-# MEMÓRIA
+# MEMÓRIA IA
 # =========================
 if "trades" not in st.session_state:
     st.session_state.trades = []
 
-if "analises" not in st.session_state:
-    st.session_state.analises = []
+if "score_buy" not in st.session_state:
+    st.session_state.score_buy = 70
+
+if "score_sell" not in st.session_state:
+    st.session_state.score_sell = 30
+
+if "last_opt" not in st.session_state:
+    st.session_state.last_opt = time.time()
 
 # =========================
 # EMAIL
@@ -50,7 +55,7 @@ if "analises" not in st.session_state:
 def enviar_email(msg):
     try:
         m = MIMEText(msg)
-        m["Subject"] = "🤖 ROBÔ FOREX ALERTA"
+        m["Subject"] = "🤖 ROBÔ IA ALERTA"
         m["From"] = EMAIL
         m["To"] = EMAIL
 
@@ -80,9 +85,10 @@ def dados():
     return df.dropna()
 
 # =========================
-# IA SCORE
+# IA SCORE BASE
 # =========================
 def score(rsi, ma9, ma21):
+
     s = 50
 
     if ma9 > ma21:
@@ -98,7 +104,7 @@ def score(rsi, ma9, ma21):
     return max(0, min(100, s))
 
 # =========================
-# ESTRATÉGIA
+# ESTRATÉGIA DINÂMICA
 # =========================
 def analisar(df):
 
@@ -111,20 +117,20 @@ def analisar(df):
     ma21 = df["MA21"].iloc[-1]
     rsi = df["RSI"].iloc[-1]
 
-    horario = datetime.now().strftime("%H:%M:%S")
-
     sc = score(rsi, ma9, ma21)
 
-    if sc > 70:
-        return "COMPRA", preco, horario, sc
+    horario = datetime.now().strftime("%H:%M:%S")
 
-    if sc < 30:
-        return "VENDA", preco, horario, sc
+    if sc >= st.session_state.score_buy:
+        return "COMPRA", preco, sc, horario
 
-    return "AGUARDAR", preco, horario, sc
+    if sc <= st.session_state.score_sell:
+        return "VENDA", preco, sc, horario
+
+    return "AGUARDAR", preco, sc, horario
 
 # =========================
-# BACKTEST
+# BACKTEST BASE
 # =========================
 def backtest(df):
 
@@ -134,37 +140,36 @@ def backtest(df):
     losses = 0
 
     for i in range(20, len(df)):
-
         if df["close"].iloc[i] > df["close"].iloc[i-1]:
             wins += 1
         else:
             losses += 1
 
     total = wins + losses
-    winrate = round((wins / total) * 100, 2) if total > 0 else 0
+    winrate = (wins / total) * 100 if total > 0 else 0
 
-    return wins, losses, winrate
+    return wins, losses, round(winrate, 2)
 
 # =========================
-# IA DE ERROS
+# IA AUTO-OTIMIZAÇÃO (CADA 1H)
 # =========================
-def diagnostico_erros(analises):
+def auto_otimizar(winrate):
 
-    if len(analises) < 5:
-        return "📊 Coletando dados..."
+    agora = time.time()
 
-    losses = [a for a in analises if "LOSS" in a]
+    if agora - st.session_state.last_opt < 3600:
+        return
 
-    if len(losses) < 2:
-        return "🟢 Sem padrão de erro forte ainda"
+    # lógica simples de adaptação
+    if winrate < 45:
+        st.session_state.score_buy += 2
+        st.session_state.score_sell -= 2
 
-    reversao = sum("reversão" in a.lower() for a in losses)
-    tendencia = sum("tendência" in a.lower() for a in losses)
+    elif winrate > 60:
+        st.session_state.score_buy -= 1
+        st.session_state.score_sell += 1
 
-    if reversao > tendencia:
-        return "⚠️ Erro principal: reversões → melhorar filtro de tendência (MA200)"
-
-    return "⚠️ Erro principal: tendência fraca → evitar lateralização"
+    st.session_state.last_opt = agora
 
 # =========================
 # RUN
@@ -172,68 +177,48 @@ def diagnostico_erros(analises):
 if ligado:
 
     df = dados()
-    sinal, preco, horario, sc = analisar(df)
+
+    sinal, preco, sc, horario = analisar(df)
 
     w, l, wr = backtest(df)
+
+    auto_otimizar(wr)
 
     # =========================
     # PAINEL
     # =========================
     st.markdown("## 📊 Painel do Robô")
 
-    st.markdown(f"### 💱 Ativo: {ativo}")
-
+    st.write(f"💱 Ativo: {ativo}")
     st.write(f"💰 Preço: {preco}")
     st.write(f"📌 Sinal: {sinal}")
-    st.write(f"🧠 Score IA: {sc}")
-    st.write(f"🕒 Horário: {horario}")
-
-    # =========================
-    # VELA ATUAL
-    # =========================
-    st.markdown("## 🕯️ Vela Atual (M5)")
-
-    st.write(f"📊 Movimento: {sinal}")
-    st.write(f"💰 Preço atual: {preco}")
-
-    # =========================
-    # BACKTEST
-    # =========================
-    st.markdown("## 📈 Backtest (7 dias simulado)")
-
-    st.write(f"✅ Wins: {w}")
-    st.write(f"❌ Losses: {l}")
+    st.write(f"🧠 Score: {sc}")
     st.write(f"📊 Winrate: {wr}%")
 
+    st.write(f"🎯 BUY LEVEL: {st.session_state.score_buy}")
+    st.write(f"🎯 SELL LEVEL: {st.session_state.score_sell}")
+
     # =========================
-    # ENTRADA
+    # ALERTA
     # =========================
     if sinal != "AGUARDAR":
-
-        st.session_state.trades.append(sinal)
-        st.session_state.analises.append("WIN" if sc > 50 else "LOSS - reversão ou entrada fraca")
 
         st.success(f"🚨 {sinal} detectado")
 
         enviar_email(f"{sinal} {ativo} preço {preco} horário {horario}")
 
+        st.session_state.trades.append(sinal)
+
     else:
         st.info("⏳ Aguardando entrada")
 
     # =========================
-    # HISTÓRICO IA
+    # IA STATUS
     # =========================
-    st.markdown("## 🧠 Histórico de IA")
+    st.markdown("## 🧠 IA Evolutiva")
 
-    for a in st.session_state.analises[-5:]:
-        st.write("•", a)
-
-    # =========================
-    # IA ERROS
-    # =========================
-    st.markdown("## 🧠 Diagnóstico Automático")
-
-    st.write(diagnostico_erros(st.session_state.analises))
+    st.write("📈 Ajusta estratégia automaticamente com base no desempenho")
+    st.write(f"🧠 Última otimização: {datetime.fromtimestamp(st.session_state.last_opt)}")
 
 else:
     st.warning("⛔ Robô desligado")
