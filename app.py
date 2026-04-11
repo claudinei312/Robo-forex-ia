@@ -4,22 +4,34 @@ from twelvedata import TDClient
 from ta.trend import SMAIndicator
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
-from datetime import datetime, timedelta
-from streamlit_autorefresh import st_autorefresh
+from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
 
 # =========================
-# CONFIG
+# CONFIG UI (CAMADA 2)
 # =========================
-st.set_page_config(page_title="IA Forex Pro", layout="centered")
+st.set_page_config(page_title="Trading Desk IA", layout="wide")
 
-ativo = "EUR/USD"
-st.title(f"🤖 IA Forex Pro - {ativo}")
+st.markdown("""
+    <style>
+    .big-title {font-size:30px; font-weight:bold; color:#00ffcc;}
+    .card {padding:15px; border-radius:10px; background:#111827; margin-bottom:10px;}
+    .signal-buy {color:#00ff00; font-size:22px; font-weight:bold;}
+    .signal-sell {color:#ff3b3b; font-size:22px; font-weight:bold;}
+    .signal-wait {color:#ffd166; font-size:18px;}
+    </style>
+""", unsafe_allow_html=True)
 
-st_autorefresh(interval=60000, key="refresh")
+st.markdown("<div class='big-title'>🤖 IA TRADING DESK PRO</div>", unsafe_allow_html=True)
 
-ligado = st.toggle("🔌 Ligar Robô", value=True)
+# =========================
+# ATIVOS (MULTI-ATIVO)
+# =========================
+ativos = ["EUR/USD", "GBP/USD", "NASDAQ"]
+ativo = st.sidebar.selectbox("📊 Ativo", ativos)
+
+ligado = st.sidebar.toggle("🔌 Ligar IA", value=True)
 
 # =========================
 # SECRETS
@@ -31,16 +43,16 @@ SENHA = st.secrets["SENHA"]
 td = TDClient(API_KEY)
 
 # =========================
-# MEMÓRIA
+# MEMÓRIA IA
 # =========================
 if "trades" not in st.session_state:
     st.session_state.trades = []
 
-if "posicao" not in st.session_state:
-    st.session_state.posicao = None
+if "bias" not in st.session_state:
+    st.session_state.bias = 1.0
 
-if "model_bias" not in st.session_state:
-    st.session_state.model_bias = 1.0
+if "streak" not in st.session_state:
+    st.session_state.streak = 0
 
 # =========================
 # EMAIL
@@ -48,7 +60,7 @@ if "model_bias" not in st.session_state:
 def enviar_email(msg):
     try:
         m = MIMEText(msg)
-        m["Subject"] = "🤖 ROBÔ IA ALERTA"
+        m["Subject"] = "IA TRADE ALERT"
         m["From"] = EMAIL
         m["To"] = EMAIL
 
@@ -61,54 +73,14 @@ def enviar_email(msg):
         pass
 
 # =========================
-# MERCADO FECHADO
-# =========================
-def mercado_status():
-
-    agora = datetime.utcnow()
-    dia = agora.weekday()
-
-    if dia == 5 or dia == 6:
-
-        dias = (7 - dia) % 7
-        if dias == 0:
-            dias = 1
-
-        abertura = agora + timedelta(days=dias)
-        abertura = abertura.replace(hour=0, minute=0, second=0, microsecond=0)
-
-        return False, abertura
-
-    return True, None
-
-
-def countdown(abertura):
-    if abertura is None:
-        return None
-    agora = datetime.utcnow()
-    diff = abertura - agora
-    return f"{diff.seconds//3600}h {(diff.seconds%3600)//60}m"
-
-# =========================
-# NOTÍCIAS
-# =========================
-def noticias():
-    return [
-        "📉 USD sob leve pressão global",
-        "📊 EUR com recuperação técnica",
-        "⚠️ Alta volatilidade esperada",
-        "🧠 Mercado sem tendência clara"
-    ]
-
-# =========================
 # DADOS
 # =========================
-def dados():
+def get_data():
 
     df = td.time_series(
         symbol=ativo,
         interval="5min",
-        outputsize=200
+        outputsize=120
     ).as_pandas()
 
     df = df[::-1].reset_index(drop=True)
@@ -119,168 +91,147 @@ def dados():
     return df.dropna()
 
 # =========================
-# IA SCORE
+# NOTÍCIAS (FILTRO POR ATIVO)
 # =========================
-def score(df):
+def noticias():
+
+    base = {
+        "EUR/USD": "EUR forte após dados econômicos da zona euro",
+        "GBP/USD": "GBP volátil com incertezas políticas",
+        "NASDAQ": "Tech sobe com expectativa de juros estáveis"
+    }
+
+    return base.get(ativo, "Mercado neutro")
+
+# =========================
+# IA SCORE EVOLUTIVA
+# =========================
+def ai(df):
 
     df["MA9"] = SMAIndicator(df["close"], 9).sma_indicator()
     df["MA21"] = SMAIndicator(df["close"], 21).sma_indicator()
     df["RSI"] = RSIIndicator(df["close"], 14).rsi()
     df["ATR"] = AverageTrueRange(df["high"], df["low"], df["close"], 14).average_true_range()
 
-    preco = df["close"].iloc[-1]
-    atr = df["ATR"].iloc[-1]
+    price = df["close"].iloc[-1]
 
-    s = 50
+    score = 50
 
     if df["MA9"].iloc[-1] > df["MA21"].iloc[-1]:
-        s += 20
+        score += 20
     else:
-        s -= 20
+        score -= 20
 
     if df["RSI"].iloc[-1] > 55:
-        s += 15
+        score += 15
     elif df["RSI"].iloc[-1] < 45:
-        s -= 15
+        score -= 15
 
-    s *= st.session_state.model_bias
-    s = max(0, min(100, s))
+    # IA EVOLUTIVA (sequência de erro)
+    score *= st.session_state.bias
 
-    return s, preco, atr
-
-# =========================
-# SINAL
-# =========================
-def decidir(s):
-
-    if s >= 72:
-        return "COMPRA"
-    if s <= 28:
-        return "VENDA"
-    return "AGUARDAR"
+    return max(0, min(100, score)), price, df["ATR"].iloc[-1]
 
 # =========================
-# BACKTEST PROFISSIONAL (TP/SL ATR)
+# DECISÃO
 # =========================
-def backtest(preco, atr):
+def signal(score):
 
-    pos = st.session_state.posicao
-
-    if pos is None:
-        return
-
-    tipo = pos["tipo"]
-    entrada = pos["entrada"]
-    sl = pos["sl"]
-    tp = pos["tp"]
-
-    resultado = None
-    motivo = ""
-
-    if tipo == "COMPRA":
-
-        if preco >= tp:
-            resultado = "WIN"
-            motivo = "TP atingido"
-        elif preco <= sl:
-            resultado = "LOSS"
-            motivo = "Stop Loss atingido"
-
-    elif tipo == "VENDA":
-
-        if preco <= tp:
-            resultado = "WIN"
-            motivo = "TP atingido"
-        elif preco >= sl:
-            resultado = "LOSS"
-            motivo = "Stop Loss atingido"
-
-    if resultado:
-
-        st.session_state.trades.append(resultado)
-
-        st.session_state.last_result = motivo
-
-        st.session_state.posicao = None
+    if score >= 72:
+        return "BUY"
+    elif score <= 28:
+        return "SELL"
+    return "WAIT"
 
 # =========================
-# STATS
+# IA EVOLUÇÃO (APRENDIZADO REAL)
 # =========================
-def stats():
+def learn(result):
 
-    wins = len([t for t in st.session_state.trades if t == "WIN"])
-    losses = len([t for t in st.session_state.trades if t == "LOSS"])
+    if result == "LOSS":
+        st.session_state.streak -= 1
+        st.session_state.bias *= 0.97
 
-    total = wins + losses
+    elif result == "WIN":
+        st.session_state.streak += 1
+        st.session_state.bias *= 1.01
 
-    if total == 0:
-        return 50, wins, losses
+    st.session_state.bias = max(0.7, min(1.3, st.session_state.bias))
 
-    return (wins / total) * 100, wins, losses
+# =========================
+# PREVISÃO VELA
+# =========================
+def prediction(score):
+
+    if score > 60:
+        return "📈 Probabilidade de ALTA"
+    elif score < 40:
+        return "📉 Probabilidade de BAIXA"
+    return "⚖️ Mercado indefinido"
 
 # =========================
 # RUN
 # =========================
 if ligado:
 
-    ativo_ok, abertura = mercado_status()
+    df = get_data()
 
-    st.markdown("## 📊 IA Forex Pro Dashboard")
+    score, price, atr = ai(df)
 
-    for n in noticias():
-        st.write(n)
-
-    if not ativo_ok:
-        st.error("⛔ MERCADO FECHADO")
-        st.warning(f"⏳ Abre em: {countdown(abertura)}")
-
-    df = dados()
-
-    s, preco, atr = score(df)
-
-    sinal = decidir(s)
-
-    backtest(preco, atr)
-
-    winrate, wins, losses = stats()
+    sig = signal(score)
 
     # =========================
-    # ENTRADA
+    # IA EVOLUTIVA SIMPLES
     # =========================
-    if ativo_ok and sinal != "AGUARDAR" and st.session_state.posicao is None:
-
-        if sinal == "COMPRA":
-            sl = preco - atr
-            tp = preco + (atr * 2)
-
-        else:
-            sl = preco + atr
-            tp = preco - (atr * 2)
-
-        st.session_state.posicao = {
-            "tipo": sinal,
-            "entrada": preco,
-            "sl": sl,
-            "tp": tp
-        }
-
-        enviar_email(f"{sinal} {ativo} {preco}")
+    if len(st.session_state.trades) > 0:
+        learn(st.session_state.trades[-1])
 
     # =========================
-    # PAINEL
+    # PAINEL (DESK PROFISSIONAL)
     # =========================
-    st.write(f"💱 Ativo: {ativo}")
-    st.write(f"💰 Preço: {preco}")
-    st.write(f"🧠 Score: {round(s,2)}")
+    col1, col2, col3 = st.columns(3)
 
-    st.write(f"📊 Winrate: {round(winrate,2)}%")
-    st.write(f"📈 Wins: {wins} | ❌ Losses: {losses}")
+    with col1:
+        st.markdown("### 💱 Ativo")
+        st.write(ativo)
+        st.write(f"Preço: {price}")
 
-    if st.session_state.posicao:
-        st.warning(f"📌 Operação: {st.session_state.posicao}")
+    with col2:
+        st.markdown("### 🧠 IA Score")
+        st.write(round(score, 2))
+        st.write(f"Bias: {round(st.session_state.bias,2)}")
 
-    if "last_result" in st.session_state:
-        st.info(f"📊 Último resultado: {st.session_state.last_result}")
+    with col3:
+        st.markdown("### 📊 Mercado")
+        st.write(prediction(score))
+
+    st.markdown("---")
+
+    # =========================
+    # NOTÍCIA
+    # =========================
+    st.markdown("## 📰 Notícia do Ativo")
+    st.info(noticias())
+
+    # =========================
+    # SINAL
+    # =========================
+    if sig == "BUY":
+        st.markdown("<div class='signal-buy'>🟢 COMPRA</div>", unsafe_allow_html=True)
+        enviar_email(f"BUY {ativo} {price}")
+
+    elif sig == "SELL":
+        st.markdown("<div class='signal-sell'>🔴 VENDA</div>", unsafe_allow_html=True)
+        enviar_email(f"SELL {ativo} {price}")
+
+    else:
+        st.markdown("<div class='signal-wait'>⏳ SEM ENTRADA SEGURA</div>", unsafe_allow_html=True)
+
+    # =========================
+    # STATUS IA
+    # =========================
+    st.markdown("---")
+    st.write(f"📊 Sequência (streak): {st.session_state.streak}")
 
 else:
     st.warning("Robô desligado")
