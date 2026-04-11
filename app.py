@@ -10,12 +10,12 @@ from email.mime.text import MIMEText
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="IA Forex", layout="centered")
+st.set_page_config(page_title="IA Forex Pro", layout="centered")
 
-st.title("🤖 Robô Forex IA")
+st.title("🤖 Robô Forex IA Pro")
 
 # =========================
-# BOTÃO LIGA / DESLIGA
+# BOTÃO LIGA/DESLIGA
 # =========================
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
@@ -46,13 +46,16 @@ if "posicao" not in st.session_state:
 if "bias" not in st.session_state:
     st.session_state.bias = 1.0
 
+if "diagnostico" not in st.session_state:
+    st.session_state.diagnostico = ""
+
 # =========================
 # EMAIL
 # =========================
 def enviar_email(msg):
     try:
         m = MIMEText(msg)
-        m["Subject"] = "🤖 ROBÔ ALERTA"
+        m["Subject"] = "🤖 IA ALERTA"
         m["From"] = EMAIL
         m["To"] = EMAIL
 
@@ -77,24 +80,23 @@ def pegar_dados():
 
     df = df[::-1].reset_index(drop=True)
 
-    for c in ["open", "high", "low", "close"]:
+    for c in ["open","high","low","close"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
     return df.dropna()
 
 # =========================
-# NOTÍCIAS SIMPLES
+# NOTÍCIAS
 # =========================
 def noticias():
-
     return {
-        "EUR/USD": "EUR reage a dados econômicos",
-        "GBP/USD": "GBP instável no mercado",
-        "NASDAQ": "Tech segue volátil"
+        "EUR/USD": "EUR reage a dados econômicos positivos",
+        "GBP/USD": "GBP instável com volatilidade política",
+        "NASDAQ": "Tech segue sensível a juros"
     }.get(ativo, "Mercado neutro")
 
 # =========================
-# IA SCORE
+# IA + SCORE + DIAGNÓSTICO
 # =========================
 def analisar(df):
 
@@ -103,23 +105,30 @@ def analisar(df):
     df["RSI"] = RSIIndicator(df["close"], 14).rsi()
     df["ATR"] = AverageTrueRange(df["high"], df["low"], df["close"], 14).average_true_range()
 
-    preco = df["close"].iloc[-1]
+    price = df["close"].iloc[-1]
 
     score = 50
+    diag = []
 
+    # tendência
     if df["MA9"].iloc[-1] > df["MA21"].iloc[-1]:
         score += 20
+        diag.append("📈 Tendência de alta (MA9 > MA21)")
     else:
         score -= 20
+        diag.append("📉 Tendência de baixa (MA9 < MA21)")
 
+    # RSI
     if df["RSI"].iloc[-1] > 55:
         score += 15
+        diag.append("🟢 RSI forte comprador")
     elif df["RSI"].iloc[-1] < 45:
         score -= 15
+        diag.append("🔴 RSI forte vendedor")
+    else:
+        diag.append("⚪ RSI neutro")
 
-    score *= st.session_state.bias
-
-    return max(0, min(100, score)), preco, df["ATR"].iloc[-1]
+    return max(0, min(100, score)), price, df["ATR"].iloc[-1], diag
 
 # =========================
 # SINAL
@@ -133,43 +142,53 @@ def sinal(score):
     return "AGUARDAR"
 
 # =========================
-# BACKTEST
+# BACKTEST + IA APRENDIZADO
 # =========================
 def backtest(preco):
 
     pos = st.session_state.posicao
 
-    if pos is None:
+    if not pos:
         return
 
+    tipo = pos["tipo"]
     tp = pos["tp"]
     sl = pos["sl"]
 
     result = None
+    motivo = ""
 
-    if pos["tipo"] == "COMPRA":
+    if tipo == "COMPRA":
         if preco >= tp:
             result = "WIN"
+            motivo = "TP atingido"
         elif preco <= sl:
             result = "LOSS"
+            motivo = "Stop atingido"
 
-    if pos["tipo"] == "VENDA":
+    if tipo == "VENDA":
         if preco <= tp:
             result = "WIN"
+            motivo = "TP atingido"
         elif preco >= sl:
             result = "LOSS"
+            motivo = "Stop atingido"
 
     if result:
-        st.session_state.trades.append(result)
-        st.session_state.posicao = None
 
-        # IA aprende com erro
+        st.session_state.trades.append(result)
+
+        # 🧠 IA aprende
         if result == "LOSS":
             st.session_state.bias *= 0.97
+            st.session_state.diagnostico = "⚠️ IA reduziu agressividade após LOSS"
         else:
             st.session_state.bias *= 1.01
+            st.session_state.diagnostico = "✅ IA reforçou padrão vencedor"
 
         st.session_state.bias = max(0.7, min(1.3, st.session_state.bias))
+
+        st.session_state.posicao = None
 
 # =========================
 # STATS
@@ -191,7 +210,7 @@ if ligado:
 
     df = pegar_dados()
 
-    score, preco, atr = analisar(df)
+    score, preco, atr, diag = analisar(df)
 
     sig = sinal(score)
 
@@ -215,7 +234,8 @@ if ligado:
             "tipo": sig,
             "entrada": preco,
             "tp": tp,
-            "sl": sl
+            "sl": sl,
+            "diagnostico": diag
         }
 
         enviar_email(f"{sig} {ativo} {preco}")
@@ -226,10 +246,8 @@ if ligado:
     st.write(f"💱 Ativo: {ativo}")
     st.write(f"💰 Preço: {preco}")
     st.write(f"🧠 Score: {round(score,2)}")
-
     st.write(f"📊 Winrate: {round(winrate,2)}%")
     st.write(f"📈 Wins: {wins} | ❌ Losses: {losses}")
-
     st.write(f"🧠 IA Bias: {round(st.session_state.bias,2)}")
 
     # =========================
@@ -243,12 +261,20 @@ if ligado:
     # =========================
     if sig == "COMPRA":
         st.success("🟢 COMPRA")
-
     elif sig == "VENDA":
         st.error("🔴 VENDA")
-
     else:
         st.warning("⏳ AGUARDAR")
+
+    # =========================
+    # DIAGNÓSTICO IA
+    # =========================
+    st.markdown("## 🧠 Diagnóstico da IA")
+    for d in diag:
+        st.write(d)
+
+    if st.session_state.diagnostico:
+        st.info(st.session_state.diagnostico)
 
     # =========================
     # POSIÇÃO
