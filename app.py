@@ -1,4 +1,7 @@
 import streamlit as st
+
+st.write("DEBUG API KEY:", repr(st.secrets.get("API_KEY")))
+import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 from robo import executar_robo
 
