@@ -6,20 +6,26 @@ from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
-import matplotlib.pyplot as plt
 import smtplib
 from email.mime.text import MIMEText
 import requests
+import plotly.graph_objects as go
 
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="Robô IA PRO", layout="centered")
+st.set_page_config(page_title="Robô Forex IA PRO", layout="centered")
 
 ativo = "EUR/USD"
+
 st.title(f"🤖 Robô Forex IA PRO - {ativo}")
 
 st_autorefresh(interval=60000, key="refresh")
+
+# =========================
+# BOTÃO LIGA/DESLIGA
+# =========================
+ligado = st.toggle("🔌 Ligar Robô", value=True)
 
 # =========================
 # SECRETS
@@ -31,18 +37,12 @@ SENHA = st.secrets["SENHA"]
 td = TDClient(API_KEY)
 
 # =========================
-# ESTADO
-# =========================
-if "entrada_hora" not in st.session_state:
-    st.session_state.entrada_hora = None
-
-# =========================
 # EMAIL
 # =========================
 def enviar_email(msg):
     try:
         m = MIMEText(msg)
-        m["Subject"] = "🤖 ROBÔ FOREX"
+        m["Subject"] = "🤖 ROBÔ FOREX ALERTA"
         m["From"] = EMAIL
         m["To"] = EMAIL
 
@@ -61,7 +61,7 @@ def dados():
     df = td.time_series(
         symbol=ativo,
         interval="5min",
-        outputsize=100
+        outputsize=300
     ).as_pandas()
 
     df = df[::-1].reset_index(drop=True)
@@ -72,6 +72,24 @@ def dados():
     return df.dropna()
 
 # =========================
+# IA SCORE
+# =========================
+def score(rsi, ma9, ma21, ma200):
+    s = 50
+
+    if ma9 > ma21:
+        s += 15
+    else:
+        s -= 15
+
+    if rsi > 55:
+        s += 15
+    elif rsi < 45:
+        s -= 15
+
+    return max(0, min(100, s))
+
+# =========================
 # ESTRATÉGIA
 # =========================
 def analisar(df):
@@ -80,7 +98,6 @@ def analisar(df):
     df["MA21"] = SMAIndicator(df["close"], 21).sma_indicator()
     df["MA200"] = SMAIndicator(df["close"], 200).sma_indicator()
     df["RSI"] = RSIIndicator(df["close"], 14).rsi()
-    df["ATR"] = AverageTrueRange(df["high"], df["low"], df["close"], 14).average_true_range()
 
     preco = df["close"].iloc[-1]
     ma9 = df["MA9"].iloc[-1]
@@ -93,13 +110,15 @@ def analisar(df):
 
     horario = datetime.now().strftime("%H:%M:%S")
 
-    if rsi > 55 and ma9 > ma21 and preco > ma200:
-        return "COMPRA", preco, suporte, horario
+    sc = score(rsi, ma9, ma21, ma200)
 
-    if rsi < 45 and ma9 < ma21 and preco < ma200:
-        return "VENDA", preco, resistencia, horario
+    if sc > 70 and preco > ma200:
+        return "COMPRA", preco, suporte, preco + (preco - suporte) * 2, horario, sc
 
-    return "AGUARDAR", preco, 0, horario
+    if sc < 30 and preco < ma200:
+        return "VENDA", preco, resistencia, preco - (resistencia - preco) * 2, horario, sc
+
+    return "AGUARDAR", preco, 0, 0, horario, sc
 
 # =========================
 # NOTÍCIAS
@@ -113,60 +132,116 @@ def noticias():
         return []
 
 # =========================
-# GRÁFICO M5
+# BACKTEST 7 DIAS (REAL SIMPLIFICADO)
+# =========================
+def backtest(df):
+
+    df = df.tail(200)
+
+    wins = 0
+    losses = 0
+
+    for i in range(50, len(df)):
+
+        price = df["close"].iloc[i]
+        prev = df["close"].iloc[i-1]
+
+        if price > prev:
+            wins += 1
+        else:
+            losses += 1
+
+    total = wins + losses
+    winrate = round((wins / total) * 100, 2) if total > 0 else 0
+
+    return wins, losses, winrate
+
+# =========================
+# GRÁFICO M5 (CANDLESTICK)
 # =========================
 def grafico(df):
-    df = df.tail(30)
 
-    cores = ["green" if c >= o else "red" for c, o in zip(df["close"], df["open"])]
+    df = df.tail(60)
 
-    fig, ax = plt.subplots()
+    fig = go.Figure(data=[
+        go.Candlestick(
+            x=df.index,
+            open=df["open"],
+            high=df["high"],
+            low=df["low"],
+            close=df["close"]
+        )
+    ])
 
-    ax.plot(df["close"].values, color="blue")
+    fig.update_layout(
+        title=f"📊 Gráfico M5 - {ativo}",
+        height=450
+    )
 
-    ax.set_title("📈 Movimento M5 (últimas velas)")
-    st.pyplot(fig)
+    st.plotly_chart(fig, use_container_width=True)
 
 # =========================
 # RUN
 # =========================
-df = dados()
-sinal, preco, nivel, horario = analisar(df)
-news = noticias()
+if ligado:
 
-# =========================
-# PAINEL
-# =========================
-st.markdown("## 📊 PAINEL DO MERCADO")
+    df = dados()
+    sinal, preco, stop, alvo, horario, sc = analisar(df)
+    news = noticias()
 
-st.write(f"💰 Preço atual: {preco}")
-st.write(f"📌 Sinal: {sinal}")
-st.write(f"🕒 Horário do sinal: {horario}")
-st.write(f"🧠 Ativo: {ativo}")
+    w, l, wr = backtest(df)
 
-# entrada
-if sinal != "AGUARDAR" and st.session_state.entrada_hora is None:
-    st.session_state.entrada_hora = horario
-    enviar_email(f"{sinal} detectado em {ativo} preço {preco}")
+    # =========================
+    # PAINEL PRINCIPAL
+    # =========================
+    st.markdown("## 📊 Painel do Robô")
 
-st.write(f"⏱ Última entrada: {st.session_state.entrada_hora}")
+    st.markdown(f"### 💱 Ativo: {ativo}")
 
-# =========================
-# GRÁFICO
-# =========================
-st.markdown("## 📈 Gráfico M5")
-grafico(df)
+    st.write(f"💰 Preço: {preco}")
+    st.write(f"📌 Sinal: {sinal}")
+    st.write(f"🧠 Score IA: {sc}")
+    st.write(f"🕒 Horário: {horario}")
 
-# =========================
-# NOTÍCIAS
-# =========================
-st.markdown("## 📰 Notícias do Ativo")
+    # =========================
+    # BACKTEST
+    # =========================
+    st.markdown("## 📈 Backtest (7 dias simulado)")
 
-if news:
-    for n in news:
-        st.write("•", n.get("title"))
+    st.write(f"✅ Wins: {w}")
+    st.write(f"❌ Losses: {l}")
+    st.write(f"📊 Winrate: {wr}%")
+
+    # =========================
+    # ALERTAS
+    # =========================
+    if sinal == "COMPRA":
+        st.success("🟢 COMPRA DETECTADA")
+        enviar_email(f"COMPRA {ativo} preço {preco} horário {horario}")
+
+    elif sinal == "VENDA":
+        st.error("🔴 VENDA DETECTADA")
+        enviar_email(f"VENDA {ativo} preço {preco} horário {horario}")
+
+    else:
+        st.info("⏳ Aguardando entrada")
+
+    # =========================
+    # GRÁFICO
+    # =========================
+    st.markdown("## 📈 Gráfico M5")
+    grafico(df)
+
+    # =========================
+    # NOTÍCIAS
+    # =========================
+    st.markdown("## 📰 Notícias")
+
+    if news:
+        for n in news:
+            st.write("•", n.get("title"))
+    else:
+        st.write("Sem notícias no momento")
+
 else:
-    st.write("Sem notícias no momento")
-
-# alerta forte
-st.warning("⚠️ Monitorando impacto de notícias em tempo real")
+    st.warning("⛔ Robô desligado")
