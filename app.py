@@ -4,27 +4,26 @@ from twelvedata import TDClient
 from ta.trend import SMAIndicator
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
-from datetime import datetime
+from datetime import datetime, timedelta
 from streamlit_autorefresh import st_autorefresh
 import smtplib
 from email.mime.text import MIMEText
 import time
-import numpy as np
 
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="IA Forex Institutional", layout="centered")
+st.set_page_config(page_title="IA Forex Pro", layout="centered")
 
 ativo = "EUR/USD"
-st.title(f"🤖 IA Institutional Trader - {ativo}")
+st.title(f"🤖 IA Forex Pro - {ativo}")
 
 st_autorefresh(interval=60000, key="refresh")
 
-ligado = st.toggle("🔌 Ligar IA Trader", value=True)
+ligado = st.toggle("🔌 Ligar Robô", value=True)
 
 # =========================
-# SECRETS
+# SECRETS (Streamlit)
 # =========================
 API_KEY = st.secrets["API_KEY"]
 EMAIL = st.secrets["EMAIL"]
@@ -41,13 +40,22 @@ if "trades" not in st.session_state:
 if "model_bias" not in st.session_state:
     st.session_state.model_bias = 1.0
 
+if "score_buy" not in st.session_state:
+    st.session_state.score_buy = 72
+
+if "score_sell" not in st.session_state:
+    st.session_state.score_sell = 28
+
+if "last_opt" not in st.session_state:
+    st.session_state.last_opt = time.time()
+
 # =========================
 # EMAIL
 # =========================
 def enviar_email(msg):
     try:
         m = MIMEText(msg)
-        m["Subject"] = "🤖 IA INSTITUTIONAL ALERTA"
+        m["Subject"] = "🤖 IA FOREX ALERTA"
         m["From"] = EMAIL
         m["To"] = EMAIL
 
@@ -60,16 +68,46 @@ def enviar_email(msg):
         pass
 
 # =========================
-# MERCADO ABERTO
+# MERCADO STATUS + COUNTDOWN
 # =========================
-def mercado_aberto():
-    dia = datetime.utcnow().weekday()
-    return not (dia == 5 or dia == 6)
+def mercado_status():
+
+    agora = datetime.utcnow()
+    dia = agora.weekday()
+
+    abertura = agora.replace(hour=22, minute=0, second=0, microsecond=0)
+
+    # sábado fechado
+    if dia == 5:
+        prox = agora + timedelta(days=1)
+        prox = prox.replace(hour=22, minute=0)
+        return False, prox
+
+    # domingo antes da abertura
+    if dia == 6 and agora < abertura:
+        return False, abertura
+
+    return True, None
+
+
+def countdown(abertura):
+
+    if abertura is None:
+        return None
+
+    agora = datetime.utcnow()
+    diff = abertura - agora
+
+    horas = diff.seconds // 3600
+    minutos = (diff.seconds % 3600) // 60
+
+    return f"{horas}h {minutos}m"
 
 # =========================
 # DADOS
 # =========================
 def dados():
+
     df = td.time_series(
         symbol=ativo,
         interval="5min",
@@ -84,7 +122,7 @@ def dados():
     return df.dropna()
 
 # =========================
-# IA PROBABILÍSTICA
+# IA SCORE
 # =========================
 def probabilidade(df):
 
@@ -101,27 +139,22 @@ def probabilidade(df):
 
     score = 50
 
-    # tendência
     if ma9 > ma21:
         score += 20
     else:
         score -= 20
 
-    # momentum
     if rsi > 55:
         score += 15
     elif rsi < 45:
         score -= 15
 
-    # volatilidade saudável
     if 0.0003 < atr < 0.003:
         score += 10
     else:
         score -= 10
 
-    # ajuste IA (bias aprendido)
-    score = score * st.session_state.model_bias
-
+    score *= st.session_state.model_bias
     score = max(0, min(100, score))
 
     horario = datetime.now().strftime("%H:%M:%S")
@@ -129,22 +162,22 @@ def probabilidade(df):
     return score, preco, ma9, ma21, rsi, atr, horario
 
 # =========================
-# DECISÃO IA
+# DECISÃO
 # =========================
 def decidir(score):
 
-    if score >= 72:
+    if score >= st.session_state.score_buy:
         return "COMPRA"
 
-    if score <= 28:
+    if score <= st.session_state.score_sell:
         return "VENDA"
 
     return "AGUARDAR"
 
 # =========================
-# BACKTEST DINÂMICO
+# BACKTEST SIMPLES
 # =========================
-def backtest_simulado():
+def backtest():
 
     wins = len([t for t in st.session_state.trades if t == "WIN"])
     losses = len([t for t in st.session_state.trades if t == "LOSS"])
@@ -161,15 +194,12 @@ def backtest_simulado():
 # =========================
 def aprender(winrate):
 
-    # melhora agressividade se ruim
     if winrate < 45:
         st.session_state.model_bias *= 0.98
 
-    # melhora agressividade se bom
     elif winrate > 60:
         st.session_state.model_bias *= 1.01
 
-    # limite
     st.session_state.model_bias = max(0.8, min(1.2, st.session_state.model_bias))
 
 # =========================
@@ -177,10 +207,22 @@ def aprender(winrate):
 # =========================
 if ligado:
 
-    if not mercado_aberto():
+    ativo_ok, abertura = mercado_status()
+
+    st.markdown("## 📊 Painel IA Forex")
+
+    if not ativo_ok:
 
         st.error("⛔ MERCADO FECHADO")
-        st.info("IA em standby aguardando abertura")
+
+        st.warning(f"⏳ Abre em: {countdown(abertura)}")
+
+        df = dados()
+
+        score, preco, ma9, ma21, rsi, atr, horario = probabilidade(df)
+
+        st.write(f"🧠 IA standby score: {round(score,2)}")
+        st.write(f"💰 Último preço: {preco}")
 
     else:
 
@@ -190,14 +232,9 @@ if ligado:
 
         sinal = decidir(score)
 
-        winrate = backtest_simulado()
+        winrate = backtest()
 
         aprender(winrate)
-
-        # =========================
-        # PAINEL
-        # =========================
-        st.markdown("## 📊 IA Institutional Dashboard")
 
         st.write(f"💱 Ativo: {ativo}")
         st.write(f"💰 Preço: {preco}")
@@ -206,20 +243,28 @@ if ligado:
         st.write(f"⚙️ IA Bias: {round(st.session_state.model_bias,3)}")
 
         # =========================
-        # DECISÃO
+        # SINAIS
         # =========================
         if sinal == "COMPRA":
-            st.success("🟢 COMPRA PROBABILÍSTICA")
+
+            st.success("🟢 COMPRA DETECTADA")
+
             enviar_email(f"COMPRA {ativo} {preco} {horario}")
+
             st.session_state.trades.append("WIN")
 
         elif sinal == "VENDA":
-            st.error("🔴 VENDA PROBABILÍSTICA")
+
+            st.error("🔴 VENDA DETECTADA")
+
             enviar_email(f"VENDA {ativo} {preco} {horario}")
+
             st.session_state.trades.append("LOSS")
 
         else:
-            st.info("⏳ SEM EDGE DE MERCADO (sem vantagem estatística)")
+
+            st.info("⏳ SEM SINAL (sem edge de mercado)")
 
 else:
+
     st.warning("Robô desligado")
