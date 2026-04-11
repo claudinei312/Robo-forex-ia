@@ -1,19 +1,18 @@
 import streamlit as st
 import pandas as pd
 from twelvedata import TDClient
-from ta.trend import SMAIndicator
+from ta.trend import SMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
-from datetime import datetime, time, timedelta
+from datetime import datetime, time
 import smtplib
 from email.mime.text import MIMEText
 
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="Robô Forex IA PRO v4.1", layout="centered")
-
-st.title("🤖 Robô Forex IA PRO v4.1")
+st.set_page_config(page_title="🤖 Robô IA PRO v6", layout="centered")
+st.title("🤖 Robô Forex IA PRO v6 FINAL")
 
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
@@ -32,8 +31,8 @@ td = TDClient(API_KEY)
 if "posicao" not in st.session_state:
     st.session_state.posicao = None
 
-if "trades" not in st.session_state:
-    st.session_state.trades = []
+if "historico" not in st.session_state:
+    st.session_state.historico = []
 
 if "erros" not in st.session_state:
     st.session_state.erros = []
@@ -41,10 +40,11 @@ if "erros" not in st.session_state:
 if "parametros" not in st.session_state:
     st.session_state.parametros = {
         "rsi_compra": 55,
-        "rsi_venda": 45,
-        "score_compra": 72,
-        "score_venda": 28
+        "rsi_venda": 45
     }
+
+if "sequencia" not in st.session_state:
+    st.session_state.sequencia = []
 
 # =========================
 # EMAIL
@@ -52,10 +52,9 @@ if "parametros" not in st.session_state:
 def enviar_email(msg):
     try:
         m = MIMEText(msg)
-        m["Subject"] = "🤖 Robô Forex PRO"
+        m["Subject"] = "🤖 Robô Forex IA"
         m["From"] = EMAIL
         m["To"] = EMAIL
-
         s = smtplib.SMTP("smtp.gmail.com", 587)
         s.starttls()
         s.login(EMAIL, SENHA)
@@ -65,36 +64,11 @@ def enviar_email(msg):
         pass
 
 # =========================
-# HORÁRIO
-# =========================
-def mercado_aberto():
-    return datetime.now().weekday() < 5
-
-def fim_de_semana():
-    return datetime.now().weekday() >= 5
-
-def fase():
-    agora = datetime.now().time()
-
-    if time(6,30) <= agora < time(6,50):
-        return "BACKTEST"
-    elif time(6,50) <= agora < time(7,30):
-        return "OTIMIZACAO"
-    elif time(8,0) <= agora < time(18,0):
-        return "OPERACAO"
-    return "AGUARDAR"
-
-# =========================
 # DADOS
 # =========================
 def pegar_dados():
     try:
-        df = td.time_series(
-            symbol=ativo,
-            interval="5min",
-            outputsize=300
-        ).as_pandas()
-
+        df = td.time_series(symbol=ativo, interval="5min", outputsize=300).as_pandas()
         df = df[::-1].reset_index(drop=True)
 
         for c in ["open","high","low","close"]:
@@ -105,109 +79,131 @@ def pegar_dados():
         return None
 
 # =========================
-# IA SCORE + DIAGNÓSTICO
+# INDICADORES
 # =========================
-def calcular_score(df):
-
+def indicadores(df):
     df["MA9"] = SMAIndicator(df["close"], 9).sma_indicator()
     df["MA21"] = SMAIndicator(df["close"], 21).sma_indicator()
     df["RSI"] = RSIIndicator(df["close"], 14).rsi()
     df["ATR"] = AverageTrueRange(df["high"], df["low"], df["close"], 14).average_true_range()
-
-    score = 50
-    diag = []
-
-    if df["MA9"].iloc[-1] > df["MA21"].iloc[-1]:
-        score += 20
-        tendencia = "alta"
-        diag.append("📈 Tendência de alta")
-    else:
-        score -= 20
-        tendencia = "baixa"
-        diag.append("📉 Tendência de baixa")
-
-    rsi = df["RSI"].iloc[-1]
-
-    if rsi > st.session_state.parametros["rsi_compra"]:
-        score += 15
-        diag.append("🟢 RSI comprador")
-    elif rsi < st.session_state.parametros["rsi_venda"]:
-        score -= 15
-        diag.append("🔴 RSI vendedor")
-    else:
-        diag.append("⚪ RSI neutro")
-
-    atr = df["ATR"].iloc[-1]
-
-    return score, tendencia, rsi, atr, diag
+    return df
 
 # =========================
-# IA BLOQUEIO
+# ESTRATÉGIAS
 # =========================
-def bloqueio_ia(tendencia, rsi):
-    erros = st.session_state.erros[-5:]
+def tendencia(df):
+    if df["MA9"].iloc[-1] > df["MA21"].iloc[-1] and df["RSI"].iloc[-1] > st.session_state.parametros["rsi_compra"]:
+        return "COMPRA"
+    if df["MA9"].iloc[-1] < df["MA21"].iloc[-1] and df["RSI"].iloc[-1] < st.session_state.parametros["rsi_venda"]:
+        return "VENDA"
+    return "AGUARDAR"
 
-    for e in erros:
-        if e["tendencia"] == tendencia and abs(e["rsi"] - rsi) < 5:
-            return True
-    return False
+def price_action(df):
+    suporte = df["low"].rolling(20).min().iloc[-1]
+    resistencia = df["high"].rolling(20).max().iloc[-1]
+    preco = df["close"].iloc[-1]
+
+    if preco <= suporte * 1.001:
+        return "COMPRA"
+    if preco >= resistencia * 0.999:
+        return "VENDA"
+    return "AGUARDAR"
+
+def rejeicao(df):
+    c = df.iloc[-1]
+    corpo = abs(c["close"] - c["open"])
+    pavio_inf = c["open"] - c["low"]
+    pavio_sup = c["high"] - c["open"]
+
+    if pavio_inf > corpo * 2:
+        return "COMPRA"
+    if pavio_sup > corpo * 2:
+        return "VENDA"
+    return "AGUARDAR"
+
+def macd(df):
+    m = MACD(df["close"])
+    if m.macd().iloc[-1] > m.macd_signal().iloc[-1]:
+        return "COMPRA"
+    if m.macd().iloc[-1] < m.macd_signal().iloc[-1]:
+        return "VENDA"
+    return "AGUARDAR"
+
+# =========================
+# IA ESCOLHE MELHOR ESTRATÉGIA
+# =========================
+def escolher_estrategia(df):
+
+    estrategias = {
+        "TENDENCIA": tendencia,
+        "PRICE_ACTION": price_action,
+        "REJEICAO": rejeicao,
+        "MACD": macd
+    }
+
+    ranking = {}
+
+    for nome, func in estrategias.items():
+        wins = 0
+        total = 0
+
+        for i in range(50, len(df)-1):
+            sub = df.iloc[:i]
+            sinal = func(sub)
+
+            if sinal == "AGUARDAR":
+                continue
+
+            preco = sub["close"].iloc[-1]
+            prox = df["close"].iloc[i+1]
+
+            total += 1
+
+            if (sinal == "COMPRA" and prox > preco) or (sinal == "VENDA" and prox < preco):
+                wins += 1
+
+        ranking[nome] = wins / total if total else 0
+
+    melhor = max(ranking, key=ranking.get)
+    return melhor, ranking
 
 # =========================
 # BACKTEST
 # =========================
-def rodar_backtest(df):
-
+def backtest(df):
     wins = 0
     losses = 0
 
     for i in range(50, len(df)-1):
-
         sub = df.iloc[:i]
-        score, tendencia, rsi, _, _ = calcular_score(sub)
+        melhor, _ = escolher_estrategia(sub)
+
+        mapa = {
+            "TENDENCIA": tendencia,
+            "PRICE_ACTION": price_action,
+            "REJEICAO": rejeicao,
+            "MACD": macd
+        }
+
+        sinal = mapa[melhor](sub)
+
+        if sinal == "AGUARDAR":
+            continue
 
         preco = sub["close"].iloc[-1]
         prox = df["close"].iloc[i+1]
 
-        if score >= st.session_state.parametros["score_compra"]:
-            if prox > preco:
-                wins += 1
-            else:
-                losses += 1
-                st.session_state.erros.append({"tendencia": tendencia, "rsi": rsi})
-
-        elif score <= st.session_state.parametros["score_venda"]:
-            if prox < preco:
-                wins += 1
-            else:
-                losses += 1
-                st.session_state.erros.append({"tendencia": tendencia, "rsi": rsi})
+        if (sinal == "COMPRA" and prox > preco) or (sinal == "VENDA" and prox < preco):
+            wins += 1
+        else:
+            losses += 1
+            st.session_state.erros.append({
+                "tipo": sinal,
+                "preco": preco
+            })
 
     total = wins + losses
-    return (wins/total*100) if total > 0 else 0
-
-# =========================
-# IA OTIMIZAÇÃO
-# =========================
-def otimizar(df, ciclos=5):
-
-    for _ in range(ciclos):
-
-        melhor = 0
-        melhor_param = st.session_state.parametros.copy()
-
-        for rsi in range(50, 65, 2):
-            for score in range(65, 80, 2):
-
-                st.session_state.parametros["rsi_compra"] = rsi
-                st.session_state.parametros["score_compra"] = score
-
-                winrate = rodar_backtest(df)
-
-                if winrate > melhor:
-                    melhor = winrate
-                    melhor_param = st.session_state.parametros.copy()
-
-        st.session_state.parametros = melhor_param
+    return wins, losses, (wins/total*100 if total else 0)
 
 # =========================
 # EXECUÇÃO
@@ -216,79 +212,80 @@ if ligado:
 
     df = pegar_dados()
 
-    st.markdown("## 📊 Painel")
-
-    if df is None or not mercado_aberto():
-
-        st.write(f"Ativo: {ativo}")
-        st.write("💰 Preço: aguardando mercado")
-        st.write("🧠 IA treinando...")
-        st.write("📢 Sinal: AGUARDAR")
-
-        if fim_de_semana() and df is not None:
-            otimizar(df, ciclos=10)
-            winrate = rodar_backtest(df)
-            st.write(f"📊 Treino IA → {winrate:.2f}%")
-
+    if df is None:
+        st.write("Carregando...")
     else:
 
-        fase_atual = fase()
-        st.write(f"🧠 Fase: {fase_atual}")
+        df = indicadores(df)
 
-        if fase_atual == "BACKTEST":
-            winrate = rodar_backtest(df)
-            st.write(f"📊 Backtest: {winrate:.2f}%")
+        melhor, ranking = escolher_estrategia(df)
 
-        elif fase_atual == "OTIMIZACAO":
-            otimizar(df, ciclos=3)
-            st.success("IA ajustada")
+        mapa = {
+            "TENDENCIA": tendencia,
+            "PRICE_ACTION": price_action,
+            "REJEICAO": rejeicao,
+            "MACD": macd
+        }
 
-        elif fase_atual == "OPERACAO":
+        sinal = mapa[melhor](df)
+        preco = df["close"].iloc[-1]
+        atr = df["ATR"].iloc[-1]
 
-            score, tendencia, rsi, atr, diag = calcular_score(df)
-            preco = df["close"].iloc[-1]
+        st.markdown("## 🧠 IA Estratégica")
+        st.write("Estratégia atual:", melhor)
 
-            if bloqueio_ia(tendencia, rsi):
-                sig = "AGUARDAR"
-                st.warning("🚫 IA bloqueou entrada")
-            else:
-                if score >= st.session_state.parametros["score_compra"]:
-                    sig = "COMPRA"
-                elif score <= st.session_state.parametros["score_venda"]:
-                    sig = "VENDA"
+        for k,v in ranking.items():
+            st.write(f"{k}: {v:.2f}")
+
+        st.markdown("## 📊 Mercado")
+        st.write("Preço:", preco)
+        st.write("Sinal:", sinal)
+
+        if sinal != "AGUARDAR" and st.session_state.posicao is None:
+
+            sl = preco - atr if sinal == "COMPRA" else preco + atr
+            tp = preco + atr*2 if sinal == "COMPRA" else preco - atr*2
+
+            st.session_state.posicao = {
+                "tipo": sinal,
+                "entrada": preco,
+                "tp": tp,
+                "sl": sl
+            }
+
+            enviar_email(f"{sinal} {ativo} {preco}")
+
+        if st.session_state.posicao:
+
+            st.markdown("## 📌 Operação ativa")
+            st.write(st.session_state.posicao)
+
+            atual = preco
+
+            if st.session_state.posicao["tipo"] == "COMPRA":
+                if atual <= st.session_state.posicao["sl"]:
+                    resultado = "LOSS"
+                elif atual >= st.session_state.posicao["tp"]:
+                    resultado = "WIN"
                 else:
-                    sig = "AGUARDAR"
+                    resultado = None
 
-            st.write(f"💰 Preço: {preco}")
-            st.write(f"📊 Score: {score}")
-            st.write(f"📢 Sinal: {sig}")
+            else:
+                if atual >= st.session_state.posicao["sl"]:
+                    resultado = "LOSS"
+                elif atual <= st.session_state.posicao["tp"]:
+                    resultado = "WIN"
+                else:
+                    resultado = None
 
-            st.markdown("## 🧠 Diagnóstico")
-            for d in diag:
-                st.write("•", d)
+            if resultado:
+                st.session_state.sequencia.append(resultado)
+                st.write("Resultado:", resultado)
+                st.session_state.posicao = None
 
-            if sig != "AGUARDAR" and st.session_state.posicao is None:
-
-                sl = preco - atr if sig == "COMPRA" else preco + atr
-                tp = preco + atr*2 if sig == "COMPRA" else preco - atr*2
-
-                st.session_state.posicao = {
-                    "tipo": sig,
-                    "entrada": preco,
-                    "tp": tp,
-                    "sl": sl
-                }
-
-                enviar_email(f"{sig} {ativo} {preco}")
-
-            if st.session_state.posicao:
-                pos = st.session_state.posicao
-
-                st.markdown("## 📌 Operação ativa")
-                st.write(f"Tipo: {pos['tipo']}")
-                st.write(f"Entrada: {pos['entrada']}")
-                st.write(f"TP: {pos['tp']}")
-                st.write(f"SL: {pos['sl']}")
+        st.markdown("## 📊 Backtest")
+        w, l, wr = backtest(df)
+        st.write(f"Wins: {w} | Losses: {l} | Winrate: {wr:.2f}%")
 
 else:
     st.warning("Robô desligado")
