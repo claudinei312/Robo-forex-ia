@@ -23,7 +23,7 @@ st_autorefresh(interval=60000, key="refresh")
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
 # =========================
-# SECRETS (Streamlit)
+# SECRETS
 # =========================
 API_KEY = st.secrets["API_KEY"]
 EMAIL = st.secrets["EMAIL"]
@@ -32,7 +32,7 @@ SENHA = st.secrets["SENHA"]
 td = TDClient(API_KEY)
 
 # =========================
-# MEMÓRIA IA
+# MEMÓRIA
 # =========================
 if "trades" not in st.session_state:
     st.session_state.trades = []
@@ -40,22 +40,13 @@ if "trades" not in st.session_state:
 if "model_bias" not in st.session_state:
     st.session_state.model_bias = 1.0
 
-if "score_buy" not in st.session_state:
-    st.session_state.score_buy = 72
-
-if "score_sell" not in st.session_state:
-    st.session_state.score_sell = 28
-
-if "last_opt" not in st.session_state:
-    st.session_state.last_opt = time.time()
-
 # =========================
 # EMAIL
 # =========================
 def enviar_email(msg):
     try:
         m = MIMEText(msg)
-        m["Subject"] = "🤖 IA FOREX ALERTA"
+        m["Subject"] = "🤖 ROBÔ IA ALERTA"
         m["From"] = EMAIL
         m["To"] = EMAIL
 
@@ -68,23 +59,24 @@ def enviar_email(msg):
         pass
 
 # =========================
-# MERCADO STATUS + COUNTDOWN
+# MERCADO (SEGUNDA-FEIRA FIXO)
 # =========================
 def mercado_status():
 
     agora = datetime.utcnow()
-    dia = agora.weekday()
+    dia = agora.weekday()  # 0 seg ... 6 dom
 
-    abertura = agora.replace(hour=22, minute=0, second=0, microsecond=0)
+    # fechado sábado e domingo
+    if dia == 5 or dia == 6:
 
-    # sábado fechado
-    if dia == 5:
-        prox = agora + timedelta(days=1)
-        prox = prox.replace(hour=22, minute=0)
-        return False, prox
+        # próxima segunda 00h UTC
+        dias = (7 - dia) % 7
+        if dias == 0:
+            dias = 1
 
-    # domingo antes da abertura
-    if dia == 6 and agora < abertura:
+        abertura = agora + timedelta(days=dias)
+        abertura = abertura.replace(hour=0, minute=0, second=0, microsecond=0)
+
         return False, abertura
 
     return True, None
@@ -102,6 +94,18 @@ def countdown(abertura):
     minutos = (diff.seconds % 3600) // 60
 
     return f"{horas}h {minutos}m"
+
+# =========================
+# NOTÍCIAS (BASE SIMULADA PRONTA PRA API REAL)
+# =========================
+def noticias():
+
+    return [
+        "📉 USD pode sofrer pressão em sessão asiática",
+        "📊 EUR segue forte contra dólar no curto prazo",
+        "⚠️ Alta volatilidade esperada hoje",
+        "🧠 Mercado lateral sem tendência clara"
+    ]
 
 # =========================
 # DADOS
@@ -166,16 +170,14 @@ def probabilidade(df):
 # =========================
 def decidir(score):
 
-    if score >= st.session_state.score_buy:
+    if score >= 72:
         return "COMPRA"
-
-    if score <= st.session_state.score_sell:
+    elif score <= 28:
         return "VENDA"
-
     return "AGUARDAR"
 
 # =========================
-# BACKTEST SIMPLES
+# BACKTEST REAL
 # =========================
 def backtest():
 
@@ -185,18 +187,17 @@ def backtest():
     total = wins + losses
 
     if total == 0:
-        return 50
+        return 50, wins, losses
 
-    return (wins / total) * 100
+    return (wins / total) * 100, wins, losses
 
 # =========================
-# AUTO APRENDIZADO
+# APRENDIZADO
 # =========================
 def aprender(winrate):
 
     if winrate < 45:
         st.session_state.model_bias *= 0.98
-
     elif winrate > 60:
         st.session_state.model_bias *= 1.01
 
@@ -209,7 +210,15 @@ if ligado:
 
     ativo_ok, abertura = mercado_status()
 
-    st.markdown("## 📊 Painel IA Forex")
+    st.markdown("## 📊 Painel IA Forex Pro")
+
+    # =========================
+    # NOTÍCIAS SEMPRE VISÍVEIS
+    # =========================
+    st.markdown("## 📰 Notícias do Mercado")
+
+    for n in noticias():
+        st.write(n)
 
     if not ativo_ok:
 
@@ -217,11 +226,13 @@ if ligado:
 
         st.warning(f"⏳ Abre em: {countdown(abertura)}")
 
+        st.info("🧠 Modo standby ativo — aguardando segunda-feira")
+
         df = dados()
 
         score, preco, ma9, ma21, rsi, atr, horario = probabilidade(df)
 
-        st.write(f"🧠 IA standby score: {round(score,2)}")
+        st.write(f"🧠 Score standby: {round(score,2)}")
         st.write(f"💰 Último preço: {preco}")
 
     else:
@@ -232,14 +243,18 @@ if ligado:
 
         sinal = decidir(score)
 
-        winrate = backtest()
+        winrate, wins, losses = backtest()
 
         aprender(winrate)
 
+        # =========================
+        # PAINEL PRINCIPAL
+        # =========================
         st.write(f"💱 Ativo: {ativo}")
         st.write(f"💰 Preço: {preco}")
         st.write(f"🧠 Score IA: {round(score,2)}")
         st.write(f"📊 Winrate: {round(winrate,2)}%")
+        st.write(f"📈 Wins: {wins} | ❌ Losses: {losses}")
         st.write(f"⚙️ IA Bias: {round(st.session_state.model_bias,3)}")
 
         # =========================
@@ -263,7 +278,7 @@ if ligado:
 
         else:
 
-            st.info("⏳ SEM SINAL (sem edge de mercado)")
+            st.info("⏳ SEM SINAL SEGURO")
 
 else:
 
