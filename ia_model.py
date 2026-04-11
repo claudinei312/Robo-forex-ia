@@ -1,7 +1,15 @@
-import random
-
 def prever(rsi, ma9, ma21, preco):
-    # IA SIMPLES (depois melhoramos)
+
+    # IA inicial (regra inteligente)
+    score = 0
+
     if rsi > 50:
-        return 1
-    return 0
+        score += 1
+
+    if ma9 > ma21:
+        score += 1
+
+    if score >= 2:
+        return 1  # aprova entrada
+
+    return 0  # bloqueia
