@@ -57,7 +57,7 @@ def enviar_email(msg):
         pass
 
 # =========================
-# MERCADO + CRONÔMETRO
+# MERCADO
 # =========================
 def mercado_fechado():
     return datetime.now().weekday() >= 5
@@ -92,9 +92,9 @@ def pegar_dados():
 def noticias():
     return {
         "EUR/USD": "EUR reage a dados econômicos da zona do euro",
-        "GBP/USD": "GBP instável com volatilidade política",
-        "NASDAQ": "Tecnologia sensível a juros nos EUA"
-    }.get(ativo, "Sem notícias relevantes no momento")
+        "GBP/USD": "GBP volátil com política monetária",
+        "NASDAQ": "Tech sensível a juros dos EUA"
+    }.get(ativo, "Sem notícias relevantes")
 
 # =========================
 # IA
@@ -124,6 +124,8 @@ def analisar(df):
     elif df["RSI"].iloc[-1] < 45:
         score -= 15
         diag.append("🔴 RSI vendedor")
+    else:
+        diag.append("⚪ RSI neutro")
 
     score *= st.session_state.bias
 
@@ -229,9 +231,9 @@ if ligado:
     st.write(f"🧠 IA Bias: {round(st.session_state.bias,2)}")
 
     # =========================
-    # NOTÍCIAS (FIXO NO PAINEL)
+    # NOTÍCIAS
     # =========================
-    st.markdown("## 📰 Notícias do Mercado")
+    st.markdown("## 📰 Notícias")
     st.info(noticias())
 
     # =========================
@@ -249,22 +251,28 @@ if ligado:
     # =========================
     st.markdown("## 🧠 Diagnóstico IA")
     for d in diag:
-        st.write(d)
+        st.write("•", d)
 
     # =========================
-    # POSIÇÃO
+    # OPERAÇÃO ATIVA (CORRIGIDO)
     # =========================
     if st.session_state.posicao:
         st.markdown("## 📌 Operação ativa")
-        st.write(st.session_state.posicao)
 
-    # =========================
-    # CRONÔMETRO (SEM TRAVAR ROBÔ)
-    # =========================
-    if mercado_fechado():
-        st.warning("⛔ Mercado fechado")
-        st.write("⏳ Próxima abertura em:")
-        st.write(tempo_abertura())
+        pos = st.session_state.posicao
+
+        st.write(f"Tipo: {pos['tipo']}")
+        st.write(f"Entrada: {pos['entrada']}")
+        st.write(f"TP: {pos['tp']}")
+        st.write(f"SL: {pos['sl']}")
 
 else:
     st.warning("Robô desligado")
+
+# =========================
+# CRONÔMETRO (SEM TRAVAR)
+# =========================
+if ligado and mercado_fechado():
+    st.warning("⛔ Mercado fechado (fim de semana)")
+    st.write("⏳ Tempo até abertura:")
+    st.write(tempo_abertura())
