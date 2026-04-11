@@ -3,21 +3,20 @@ import pandas as pd
 from twelvedata import TDClient
 from ta.trend import SMAIndicator
 from ta.momentum import RSIIndicator
-from ta.volatility import AverageTrueRange
-from datetime import datetime, timedelta
+from datetime import datetime, time
 import smtplib
 from email.mime.text import MIMEText
 
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="Robô Forex IA", layout="centered")
+st.set_page_config(page_title="Robô Forex IA PRO v3", layout="centered")
 
-st.title("🤖 Robô Forex IA")
+st.title("🤖 Robô Forex IA PRO v3")
 
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
-ativos = ["EUR/USD", "GBP/USD", "NASDAQ"]
+ativos = ["EUR/USD", "GBP/USD"]
 ativo = st.selectbox("📊 Ativo", ativos)
 
 API_KEY = st.secrets["API_KEY"]
@@ -29,14 +28,22 @@ td = TDClient(API_KEY)
 # =========================
 # MEMÓRIA
 # =========================
-if "trades" not in st.session_state:
-    st.session_state.trades = []
-
 if "posicao" not in st.session_state:
     st.session_state.posicao = None
 
-if "bias" not in st.session_state:
-    st.session_state.bias = 1.0
+if "trades" not in st.session_state:
+    st.session_state.trades = []
+
+if "erros" not in st.session_state:
+    st.session_state.erros = []
+
+if "parametros" not in st.session_state:
+    st.session_state.parametros = {
+        "rsi_compra": 55,
+        "rsi_venda": 45,
+        "score_compra": 72,
+        "score_venda": 28
+    }
 
 # =========================
 # EMAIL
@@ -44,7 +51,7 @@ if "bias" not in st.session_state:
 def enviar_email(msg):
     try:
         m = MIMEText(msg)
-        m["Subject"] = "🤖 Robô Forex IA"
+        m["Subject"] = "🤖 Robô Forex PRO"
         m["From"] = EMAIL
         m["To"] = EMAIL
 
@@ -57,17 +64,21 @@ def enviar_email(msg):
         pass
 
 # =========================
-# MERCADO
+# HORÁRIO
 # =========================
-def mercado_fechado():
-    return datetime.now().weekday() >= 5
+def fase():
+    agora = datetime.now().time()
 
-def tempo_abertura():
-    agora = datetime.now()
-    dias = (7 - agora.weekday()) % 7
-    if dias == 0:
-        dias = 1
-    return timedelta(days=dias)
+    if time(6,30) <= agora < time(6,50):
+        return "BACKTEST"
+    elif time(6,50) <= agora < time(7,30):
+        return "OTIMIZACAO"
+    elif time(8,0) <= agora < time(18,0):
+        return "OPERACAO"
+    return "AGUARDAR"
+
+def mercado_aberto():
+    return datetime.now().weekday() < 5
 
 # =========================
 # DADOS
@@ -76,203 +87,188 @@ def pegar_dados():
     df = td.time_series(
         symbol=ativo,
         interval="5min",
-        outputsize=120
+        outputsize=200
     ).as_pandas()
 
     df = df[::-1].reset_index(drop=True)
 
-    for c in ["open", "high", "low", "close"]:
+    for c in ["open","high","low","close"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
     return df.dropna()
 
 # =========================
-# NOTÍCIAS
+# SCORE + DIAGNÓSTICO
 # =========================
-def noticias():
-    return {
-        "EUR/USD": "EUR reage a dados econômicos da zona do euro",
-        "GBP/USD": "GBP volátil com política monetária",
-        "NASDAQ": "Tech sensível a juros dos EUA"
-    }.get(ativo, "Sem notícias relevantes")
-
-# =========================
-# IA
-# =========================
-def analisar(df):
+def calcular_score(df):
 
     df["MA9"] = SMAIndicator(df["close"], 9).sma_indicator()
     df["MA21"] = SMAIndicator(df["close"], 21).sma_indicator()
     df["RSI"] = RSIIndicator(df["close"], 14).rsi()
-    df["ATR"] = AverageTrueRange(df["high"], df["low"], df["close"], 14).average_true_range()
-
-    preco = df["close"].iloc[-1]
 
     score = 50
     diag = []
 
     if df["MA9"].iloc[-1] > df["MA21"].iloc[-1]:
         score += 20
-        diag.append("📈 Tendência de alta")
+        tendencia = "alta"
+        diag.append("📈 Alta")
     else:
         score -= 20
-        diag.append("📉 Tendência de baixa")
+        tendencia = "baixa"
+        diag.append("📉 Baixa")
 
-    if df["RSI"].iloc[-1] > 55:
+    rsi = df["RSI"].iloc[-1]
+
+    if rsi > st.session_state.parametros["rsi_compra"]:
         score += 15
-        diag.append("🟢 RSI comprador")
-    elif df["RSI"].iloc[-1] < 45:
+        diag.append("RSI compra")
+    elif rsi < st.session_state.parametros["rsi_venda"]:
         score -= 15
-        diag.append("🔴 RSI vendedor")
-    else:
-        diag.append("⚪ RSI neutro")
+        diag.append("RSI venda")
 
-    score *= st.session_state.bias
-
-    return max(0, min(100, score)), preco, df["ATR"].iloc[-1], diag
+    return score, tendencia, rsi, diag
 
 # =========================
-# SINAL
+# IA ANTI-ERRO
 # =========================
-def sinal(score):
-    if score >= 72:
-        return "COMPRA"
-    elif score <= 28:
-        return "VENDA"
-    return "AGUARDAR"
+def bloqueio_ia(tendencia, rsi):
 
-# =========================
-# BACKTEST
-# =========================
-def backtest(preco):
+    erros = st.session_state.erros[-5:]
 
-    pos = st.session_state.posicao
-    if not pos:
-        return
+    for e in erros:
+        if e["tendencia"] == tendencia and abs(e["rsi"] - rsi) < 5:
+            return True
 
-    tipo = pos["tipo"]
-    tp = pos["tp"]
-    sl = pos["sl"]
-
-    result = None
-
-    if tipo == "COMPRA":
-        if preco >= tp:
-            result = "WIN"
-        elif preco <= sl:
-            result = "LOSS"
-
-    elif tipo == "VENDA":
-        if preco <= tp:
-            result = "WIN"
-        elif preco >= sl:
-            result = "LOSS"
-
-    if result:
-        st.session_state.trades.append(result)
-        st.session_state.posicao = None
-
-        if result == "LOSS":
-            st.session_state.bias *= 0.97
-        else:
-            st.session_state.bias *= 1.01
-
-        st.session_state.bias = max(0.7, min(1.3, st.session_state.bias))
+    return False
 
 # =========================
-# STATS
+# BACKTEST + APRENDIZADO
 # =========================
-def stats():
-    wins = st.session_state.trades.count("WIN")
-    losses = st.session_state.trades.count("LOSS")
+def rodar_backtest(df):
+
+    wins = 0
+    losses = 0
+
+    for i in range(50, len(df)-1):
+
+        sub = df.iloc[:i]
+        score, tendencia, rsi, _ = calcular_score(sub)
+
+        preco = sub["close"].iloc[-1]
+        prox = df["close"].iloc[i+1]
+
+        if score >= st.session_state.parametros["score_compra"]:
+
+            if prox > preco:
+                wins += 1
+            else:
+                losses += 1
+                st.session_state.erros.append({
+                    "tendencia": tendencia,
+                    "rsi": rsi
+                })
+
+        elif score <= st.session_state.parametros["score_venda"]:
+
+            if prox < preco:
+                wins += 1
+            else:
+                losses += 1
+                st.session_state.erros.append({
+                    "tendencia": tendencia,
+                    "rsi": rsi
+                })
+
     total = wins + losses
-    winrate = (wins / total * 100) if total > 0 else 50
+    winrate = (wins/total*100) if total > 0 else 0
+
     return winrate, wins, losses
 
 # =========================
-# RUN
+# OTIMIZAÇÃO
+# =========================
+def otimizar(df):
+
+    melhor = 0
+    melhor_param = st.session_state.parametros.copy()
+
+    for rsi in range(50, 65, 2):
+        for score in range(65, 80, 2):
+
+            st.session_state.parametros["rsi_compra"] = rsi
+            st.session_state.parametros["score_compra"] = score
+
+            winrate, _, _ = rodar_backtest(df)
+
+            if winrate > melhor:
+                melhor = winrate
+                melhor_param = st.session_state.parametros.copy()
+
+    st.session_state.parametros = melhor_param
+
+# =========================
+# EXECUÇÃO
 # =========================
 if ligado:
 
     df = pegar_dados()
-    score, preco, atr, diag = analisar(df)
-    sig = sinal(score)
+    fase_atual = fase()
 
-    backtest(preco)
+    st.write(f"🧠 Fase: {fase_atual}")
 
-    winrate, wins, losses = stats()
+    # BACKTEST
+    if fase_atual == "BACKTEST":
+        winrate, wins, losses = rodar_backtest(df)
+        st.write(f"Winrate: {winrate:.2f}%")
 
-    # =========================
-    # ENTRADA
-    # =========================
-    if sig != "AGUARDAR" and st.session_state.posicao is None:
+    # OTIMIZAÇÃO
+    elif fase_atual == "OTIMIZACAO":
+        otimizar(df)
+        st.success("IA otimizou parâmetros")
 
-        sl = preco - atr if sig == "COMPRA" else preco + atr
-        tp = preco + (atr * 2) if sig == "COMPRA" else preco - (atr * 2)
+    # OPERAÇÃO
+    elif fase_atual == "OPERACAO":
 
-        st.session_state.posicao = {
-            "tipo": sig,
-            "entrada": preco,
-            "tp": tp,
-            "sl": sl,
-            "diagnostico": diag
-        }
+        score, tendencia, rsi, diag = calcular_score(df)
+        preco = df["close"].iloc[-1]
 
-        enviar_email(f"{sig} {ativo} {preco}")
+        if bloqueio_ia(tendencia, rsi):
+            st.warning("🚫 IA bloqueou entrada (padrão ruim)")
+            sig = "AGUARDAR"
+        else:
+            if score >= st.session_state.parametros["score_compra"]:
+                sig = "COMPRA"
+            elif score <= st.session_state.parametros["score_venda"]:
+                sig = "VENDA"
+            else:
+                sig = "AGUARDAR"
 
-    # =========================
-    # PAINEL
-    # =========================
-    st.write(f"📊 Ativo: {ativo}")
-    st.write(f"💰 Preço: {preco}")
-    st.write(f"🧠 Score: {round(score,2)}")
-    st.write(f"📈 Winrate: {round(winrate,2)}%")
-    st.write(f"🏆 Wins: {wins} | ❌ Losses: {losses}")
-    st.write(f"🧠 IA Bias: {round(st.session_state.bias,2)}")
+        st.write(f"Sinal: {sig}")
+        st.write(f"Score: {score}")
 
-    # =========================
-    # NOTÍCIAS
-    # =========================
-    st.markdown("## 📰 Notícias")
-    st.info(noticias())
+        # ENTRADA
+        if sig != "AGUARDAR" and st.session_state.posicao is None:
 
-    # =========================
-    # SINAL
-    # =========================
-    if sig == "COMPRA":
-        st.success("🟢 COMPRA")
-    elif sig == "VENDA":
-        st.error("🔴 VENDA")
+            st.session_state.posicao = {
+                "tipo": sig,
+                "entrada": preco,
+                "diag": diag
+            }
+
+            if mercado_aberto():
+                enviar_email(f"{sig} {ativo} {preco}")
+
+        # MONITORAMENTO
+        if st.session_state.posicao:
+            pos = st.session_state.posicao
+
+            st.markdown("## 📌 Operação ativa")
+            st.write(f"Tipo: {pos['tipo']}")
+            st.write(f"Entrada: {pos['entrada']}")
+
     else:
-        st.warning("⏳ AGUARDAR")
-
-    # =========================
-    # DIAGNÓSTICO
-    # =========================
-    st.markdown("## 🧠 Diagnóstico IA")
-    for d in diag:
-        st.write("•", d)
-
-    # =========================
-    # OPERAÇÃO ATIVA (CORRIGIDO)
-    # =========================
-    if st.session_state.posicao:
-        st.markdown("## 📌 Operação ativa")
-
-        pos = st.session_state.posicao
-
-        st.write(f"Tipo: {pos['tipo']}")
-        st.write(f"Entrada: {pos['entrada']}")
-        st.write(f"TP: {pos['tp']}")
-        st.write(f"SL: {pos['sl']}")
+        st.warning("⏳ Aguardando horário ideal")
 
 else:
     st.warning("Robô desligado")
-
-# =========================
-# CRONÔMETRO (SEM TRAVAR)
-# =========================
-if ligado and mercado_fechado():
-    st.warning("⛔ Mercado fechado (fim de semana)")
-    st.write("⏳ Tempo até abertura:")
-    st.write(tempo_abertura())
