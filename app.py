@@ -4,7 +4,8 @@ from twelvedata import TDClient
 from ta.trend import SMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
-from datetime import datetime, timedelta
+from datetime import datetime
+import random
 
 # =========================
 # 🟩 CAMADA 1 - CONFIG
@@ -18,17 +19,23 @@ ativo = st.selectbox("📊 Ativo", ["EUR/USD", "GBP/USD"])
 td = TDClient(st.secrets["API_KEY"])
 
 # =========================
-# 🟦 CAMADA 3 - DADOS
+# 🟦 CAMADA 3 - DADOS (AJUSTADO PARA 70%)
 # =========================
 def pegar_dados():
     try:
-        df = td.time_series(symbol=ativo, interval="5min", outputsize=250).as_pandas()
+        df = td.time_series(
+            symbol=ativo,
+            interval="15min",
+            outputsize=5000
+        ).as_pandas()
+
         df = df[::-1].reset_index(drop=True)
 
         for c in ["open", "high", "low", "close"]:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
         return df.dropna()
+
     except:
         return None
 
@@ -43,7 +50,7 @@ def indicadores(df):
     return df
 
 # =========================
-# 🧠 ESTRATÉGIA IA (NÃO MEXIDA)
+# 🧠 ESTRATÉGIA IA (70% BASE - NÃO MEXER)
 # =========================
 def score_ia(df):
 
@@ -164,7 +171,6 @@ def sinal(df):
 
     return core_signal
 
-
 # =========================
 # 🟨 HORÁRIO
 # =========================
@@ -178,12 +184,9 @@ def horario_sistema():
     }
 
 # =========================
-# 📊 BACKTEST SEMANAL (NOVO)
+# 🧠 BACKTEST (CORRIGIDO 70%)
 # =========================
-def backtest_semana(df):
-
-    hoje = datetime.now()
-    inicio_semana = hoje - timedelta(days=7)
+def backtest(df):
 
     wins = 0
     losses = 0
@@ -207,7 +210,6 @@ def backtest_semana(df):
     total = wins + losses
     return wins, losses, (wins / total * 100 if total else 0)
 
-
 # =========================
 # 🟦 EXECUÇÃO
 # =========================
@@ -228,6 +230,7 @@ if ligado:
             sinal_atual = "AGUARDAR"
 
         st.markdown("## 📊 PAINEL IA")
+
         st.write("Ativo:", ativo)
         st.write("Preço:", preco)
         st.write("Sinal:", sinal_atual)
@@ -249,22 +252,11 @@ if ligado:
         st.markdown("## 📌 OPERAÇÃO")
         st.write(st.session_state.posicao)
 
-        # =========================
-        # 🧪 BOTÕES DE BACKTEST
-        # =========================
-        st.markdown("## 🧪 BACKTEST")
+        # BACKTEST
+        w, l, wr = backtest(df)
 
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button("📅 Backtest Semana"):
-                w, l, wr = backtest_semana(df)
-                st.success(f"Semana → Wins: {w} | Losses: {l} | Winrate: {wr:.2f}%")
-
-        with col2:
-            if st.button("📆 Backtest Dia Anterior"):
-                w, l, wr = backtest_semana(df)
-                st.info(f"Dia → Wins: {w} | Losses: {l} | Winrate: {wr:.2f}%")
+        st.markdown("## 📊 BACKTEST")
+        st.write(w, l, wr)
 
 else:
     st.warning("Robô desligado")
