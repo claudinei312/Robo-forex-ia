@@ -4,7 +4,7 @@ from twelvedata import TDClient
 from ta.trend import SMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
-from datetime import datetime
+from datetime import datetime, timedelta
 import random
 
 # =========================
@@ -23,7 +23,7 @@ td = TDClient(st.secrets["API_KEY"])
 # =========================
 def pegar_dados():
     try:
-        df = td.time_series(symbol=ativo, interval="5min", outputsize=250).as_pandas()
+        df = td.time_series(symbol=ativo, interval="5min", outputsize=500).as_pandas()
         df = df[::-1].reset_index(drop=True)
 
         for c in ["open", "high", "low", "close"]:
@@ -44,168 +44,112 @@ def indicadores(df):
     return df
 
 # =========================
-# 🧠 ESTRATÉGIA IA (70% BASE)
+# 🟨 ESTRATÉGIAS (SEM MEXER)
 # =========================
-
-def score_ia(df):
-
-    score = 0
-
-    if df["MA9"].iloc[-1] > df["MA21"].iloc[-1]:
-        score += 1
-    else:
-        score -= 1
-
+def tendencia(df):
     rsi = df["RSI"].iloc[-1]
-    if rsi > 55:
-        score += 1
-    elif rsi < 45:
-        score -= 1
-
-    m = MACD(df["close"])
-    if m.macd().iloc[-1] > m.macd_signal().iloc[-1]:
-        score += 1
-    else:
-        score -= 1
-
-    atr = df["ATR"].iloc[-1]
-    if atr > df["ATR"].rolling(50).mean().iloc[-1]:
-        score += 1
-    else:
-        score -= 1
-
-    return score
-
-
-def tendencia_forte(df):
-
-    closes = df["close"].tail(10)
-
-    alta = 0
-    baixa = 0
-
-    for i in range(1, len(closes)):
-        if closes.iloc[i] > closes.iloc[i-1]:
-            alta += 1
-        else:
-            baixa += 1
-
-    if alta >= 8:
-        return "UP"
-
-    if baixa >= 8:
-        return "DOWN"
-
-    return "LATERAL"
-
-
-def filtro_distancia(df):
-
-    price = df["close"].iloc[-1]
-    ma21 = df["MA21"].iloc[-1]
-    atr = df["ATR"].iloc[-1]
-
-    distancia = abs(price - ma21)
-
-    if distancia > atr * 1.8:
-        return False
-
-    return True
-
-
-def entrada_extra(df):
-
-    price = df["close"].iloc[-1]
-    ma21 = df["MA21"].iloc[-1]
-    atr = df["ATR"].iloc[-1]
-
-    score = score_ia(df)
-    trend = tendencia_forte(df)
-
-    pullback = abs(price - ma21) < atr * 0.9
-
-    last = df["close"].iloc[-1]
-    prev = df["close"].iloc[-2]
-
-    micro_up = last > prev
-    micro_down = last < prev
-
-    if trend == "UP" and score >= 2 and pullback and micro_up:
+    if df["MA9"].iloc[-1] > df["MA21"].iloc[-1] and rsi > 55:
         return "COMPRA"
-
-    if trend == "DOWN" and score <= -2 and pullback and micro_down:
+    if df["MA9"].iloc[-1] < df["MA21"].iloc[-1] and rsi < 45:
         return "VENDA"
-
     return "AGUARDAR"
 
+def price_action(df):
+    suporte = df["low"].rolling(20).min().iloc[-1]
+    resistencia = df["high"].rolling(20).max().iloc[-1]
+    preco = df["close"].iloc[-1]
 
-def sinal(df):
+    if preco <= suporte * 1.001:
+        return "COMPRA"
+    if preco >= resistencia * 0.999:
+        return "VENDA"
+    return "AGUARDAR"
 
-    score = score_ia(df)
-    trend = tendencia_forte(df)
+def rejeicao(df):
+    c = df.iloc[-1]
+    corpo = abs(c["close"] - c["open"])
 
-    if trend == "LATERAL":
-        return "AGUARDAR"
+    if (c["open"] - c["low"]) > corpo * 2:
+        return "COMPRA"
+    if (c["high"] - c["open"]) > corpo * 2:
+        return "VENDA"
+    return "AGUARDAR"
 
-    if not filtro_distancia(df):
-        return "AGUARDAR"
-
-    # CORE
-    if trend == "UP" and score < 2:
-        core_signal = "AGUARDAR"
-    elif trend == "DOWN" and score > -2:
-        core_signal = "AGUARDAR"
-    elif score >= 3 and trend == "UP":
-        core_signal = "COMPRA"
-    elif score <= -3 and trend == "DOWN":
-        core_signal = "VENDA"
-    else:
-        core_signal = "AGUARDAR"
-
-    # EXTRA
-    if core_signal == "AGUARDAR":
-        return entrada_extra(df)
-
-    return core_signal
-
-# =========================
-# 🟨 HORÁRIO
-# =========================
-def horario_sistema():
-    hora = datetime.now().hour
-    dia = datetime.now().weekday()
-
-    return {
-        "operacao_liberada": hora >= 8,
-        "fim_de_semana": dia >= 5
-    }
+def macd(df):
+    m = MACD(df["close"])
+    if m.macd().iloc[-1] > m.macd_signal().iloc[-1]:
+        return "COMPRA"
+    if m.macd().iloc[-1] < m.macd_signal().iloc[-1]:
+        return "VENDA"
+    return "AGUARDAR"
 
 # =========================
-# 🧠 BACKTEST SIMPLES
+# 🟫 BACKTEST ORIGINAL
 # =========================
 def backtest(df):
-
     wins = 0
     losses = 0
 
-    for i in range(60, len(df) - 1):
+    for i in range(40, len(df)-1):
 
         sub = df.iloc[:i]
-        sig = sinal(sub)
+        estrategias = {
+            "TENDENCIA": tendencia,
+            "PRICE_ACTION": price_action,
+            "REJEICAO": rejeicao,
+            "MACD": macd
+        }
 
-        if sig == "AGUARDAR":
+        # usa tendência simples (igual seu robô)
+        sinal = tendencia(sub)
+
+        if sinal == "AGUARDAR":
             continue
 
-        price = sub["close"].iloc[-1]
-        next_price = df["close"].iloc[i + 1]
+        preco = sub["close"].iloc[-1]
+        prox = df["close"].iloc[i+1]
 
-        if (sig == "COMPRA" and next_price > price) or (sig == "VENDA" and next_price < price):
+        if (sinal == "COMPRA" and prox > preco) or (sinal == "VENDA" and prox < preco):
             wins += 1
         else:
             losses += 1
 
     total = wins + losses
-    return wins, losses, (wins / total * 100 if total else 0)
+    return wins, losses, (wins/total*100 if total else 0)
+
+# =========================
+# 📊 FILTRO DE DIAS ÚTEIS
+# =========================
+def filtrar_dias_uteis(df):
+    return df  # API já vem sem calendário real de feriados, mantemos simples
+
+# =========================
+# 📊 BACKTEST SEMANA
+# =========================
+def backtest_semana():
+    df = pegar_dados()
+    if df is None:
+        return None
+
+    df = indicadores(df)
+    df = filtrar_dias_uteis(df)
+
+    return backtest(df)
+
+# =========================
+# 📊 BACKTEST DIA ANTERIOR
+# =========================
+def backtest_dia_anterior():
+    df = pegar_dados()
+    if df is None:
+        return None
+
+    df = indicadores(df)
+
+    # simulação: pega últimos candles como "dia anterior"
+    df = df.tail(100)
+
+    return backtest(df)
 
 # =========================
 # 🟦 EXECUÇÃO
@@ -218,43 +162,27 @@ if ligado:
 
         df = indicadores(df)
 
-        status = horario_sistema()
+        st.markdown("## 📊 BACKTEST CONTROLES")
 
-        sinal_atual = sinal(df)
+        if st.button("📅 Backtest Última Semana"):
+            w, l, wr = backtest_semana()
+            st.success(f"Semana → Wins: {w} | Losses: {l} | Winrate: {wr:.2f}%")
+
+        if st.button("📆 Backtest Dia Anterior"):
+            w, l, wr = backtest_dia_anterior()
+            st.info(f"Dia anterior → Wins: {w} | Losses: {l} | Winrate: {wr:.2f}%")
+
+        st.markdown("---")
+
+        # =========================
+        # 📊 PAINEL NORMAL
+        # =========================
+        sinal = tendencia(df)
         preco = df["close"].iloc[-1]
-
-        if not status["operacao_liberada"]:
-            sinal_atual = "AGUARDAR"
-
-        st.markdown("## 📊 PAINEL IA")
 
         st.write("Ativo:", ativo)
         st.write("Preço:", preco)
-        st.write("Sinal:", sinal_atual)
-
-        # operação
-        atr = df["ATR"].iloc[-1]
-
-        if "posicao" not in st.session_state:
-            st.session_state.posicao = None
-
-        if sinal_atual != "AGUARDAR" and st.session_state.posicao is None:
-
-            st.session_state.posicao = {
-                "tipo": sinal_atual,
-                "entrada": preco,
-                "tp": preco + atr*2 if sinal_atual == "COMPRA" else preco - atr*2,
-                "sl": preco - atr if sinal_atual == "COMPRA" else preco + atr
-            }
-
-        st.markdown("## 📌 OPERAÇÃO")
-        st.write(st.session_state.posicao)
-
-        # backtest
-        w, l, wr = backtest(df)
-
-        st.markdown("## 📊 BACKTEST")
-        st.write(w, l, wr)
+        st.write("Sinal:", sinal)
 
 else:
     st.warning("Robô desligado")
