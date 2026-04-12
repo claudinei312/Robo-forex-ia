@@ -19,62 +19,6 @@ ativo = st.selectbox("📊 Ativo", ["EUR/USD", "GBP/USD"])
 td = TDClient(st.secrets["API_KEY"])
 
 # =========================
-# 🟨 CAMADA 2 - MEMÓRIA IA
-# =========================
-if "posicao" not in st.session_state:
-    st.session_state.posicao = None
-
-if "erros" not in st.session_state:
-    st.session_state.erros = []
-
-if "ranking_global" not in st.session_state:
-    st.session_state.ranking_global = {
-        "TENDENCIA": 1.0,
-        "PRICE_ACTION": 1.0,
-        "REJEICAO": 1.0,
-        "MACD": 1.0
-    }
-
-if "sequencia" not in st.session_state:
-    st.session_state.sequencia = []
-
-# =========================
-# 🟥 CAMADA 8 - FASE DO MERCADO
-# =========================
-def fase_mercado():
-    hora = datetime.now().hour
-    dia = datetime.now().weekday()
-
-    if dia >= 5:
-        return "TREINO"
-
-    if hora < 6:
-        return "INATIVO"
-
-    if 6 <= hora < 8:
-        return "BACKTEST"
-
-    if hora >= 8:
-        return "OPERACAO"
-
-    return "PROTECAO"
-
-# =========================
-# 🆕 CAMADA - HORÁRIO SISTEMA
-# =========================
-def horario_sistema():
-    hora = datetime.now().hour
-    minuto = datetime.now().minute
-    dia = datetime.now().weekday()
-
-    return {
-        "backtest": hora == 6 and minuto >= 40,
-        "ajuste_ia": hora == 7,
-        "operacao_liberada": hora >= 8,
-        "fim_de_semana": dia >= 5
-    }
-
-# =========================
 # 🟦 CAMADA 3 - DADOS
 # =========================
 def pegar_dados():
@@ -100,155 +44,171 @@ def indicadores(df):
     return df
 
 # =========================
-# 🟨 ESTRATÉGIAS
+# 🧠 ESTRATÉGIA IA (70% BASE)
 # =========================
-def tendencia(df):
+
+def score_ia(df):
+
+    score = 0
+
+    if df["MA9"].iloc[-1] > df["MA21"].iloc[-1]:
+        score += 1
+    else:
+        score -= 1
+
     rsi = df["RSI"].iloc[-1]
-    if df["MA9"].iloc[-1] > df["MA21"].iloc[-1] and rsi > 55:
-        return "COMPRA"
-    if df["MA9"].iloc[-1] < df["MA21"].iloc[-1] and rsi < 45:
-        return "VENDA"
-    return "AGUARDAR"
+    if rsi > 55:
+        score += 1
+    elif rsi < 45:
+        score -= 1
 
-def price_action(df):
-    suporte = df["low"].rolling(20).min().iloc[-1]
-    resistencia = df["high"].rolling(20).max().iloc[-1]
-    preco = df["close"].iloc[-1]
-
-    if preco <= suporte * 1.001:
-        return "COMPRA"
-    if preco >= resistencia * 0.999:
-        return "VENDA"
-    return "AGUARDAR"
-
-def rejeicao(df):
-    c = df.iloc[-1]
-    corpo = abs(c["close"] - c["open"])
-
-    if (c["open"] - c["low"]) > corpo * 2:
-        return "COMPRA"
-    if (c["high"] - c["open"]) > corpo * 2:
-        return "VENDA"
-    return "AGUARDAR"
-
-def macd(df):
     m = MACD(df["close"])
     if m.macd().iloc[-1] > m.macd_signal().iloc[-1]:
+        score += 1
+    else:
+        score -= 1
+
+    atr = df["ATR"].iloc[-1]
+    if atr > df["ATR"].rolling(50).mean().iloc[-1]:
+        score += 1
+    else:
+        score -= 1
+
+    return score
+
+
+def tendencia_forte(df):
+
+    closes = df["close"].tail(10)
+
+    alta = 0
+    baixa = 0
+
+    for i in range(1, len(closes)):
+        if closes.iloc[i] > closes.iloc[i-1]:
+            alta += 1
+        else:
+            baixa += 1
+
+    if alta >= 8:
+        return "UP"
+
+    if baixa >= 8:
+        return "DOWN"
+
+    return "LATERAL"
+
+
+def filtro_distancia(df):
+
+    price = df["close"].iloc[-1]
+    ma21 = df["MA21"].iloc[-1]
+    atr = df["ATR"].iloc[-1]
+
+    distancia = abs(price - ma21)
+
+    if distancia > atr * 1.8:
+        return False
+
+    return True
+
+
+def entrada_extra(df):
+
+    price = df["close"].iloc[-1]
+    ma21 = df["MA21"].iloc[-1]
+    atr = df["ATR"].iloc[-1]
+
+    score = score_ia(df)
+    trend = tendencia_forte(df)
+
+    pullback = abs(price - ma21) < atr * 0.9
+
+    last = df["close"].iloc[-1]
+    prev = df["close"].iloc[-2]
+
+    micro_up = last > prev
+    micro_down = last < prev
+
+    if trend == "UP" and score >= 2 and pullback and micro_up:
         return "COMPRA"
-    if m.macd().iloc[-1] < m.macd_signal().iloc[-1]:
+
+    if trend == "DOWN" and score <= -2 and pullback and micro_down:
         return "VENDA"
+
     return "AGUARDAR"
 
-# =========================
-# 🟪 IA ADAPTATIVA
-# =========================
-def ajustar_rsi(df):
-    atr = df["ATR"].iloc[-1]
-    if atr > 0.002:
-        return 60, 40
-    if atr < 0.0008:
-        return 58, 42
-    return 55, 45
 
-def atualizar_pesos(estrategia, resultado):
-    if resultado == "LOSS":
-        st.session_state.ranking_global[estrategia] *= 0.95
+def sinal(df):
+
+    score = score_ia(df)
+    trend = tendencia_forte(df)
+
+    if trend == "LATERAL":
+        return "AGUARDAR"
+
+    if not filtro_distancia(df):
+        return "AGUARDAR"
+
+    # CORE
+    if trend == "UP" and score < 2:
+        core_signal = "AGUARDAR"
+    elif trend == "DOWN" and score > -2:
+        core_signal = "AGUARDAR"
+    elif score >= 3 and trend == "UP":
+        core_signal = "COMPRA"
+    elif score <= -3 and trend == "DOWN":
+        core_signal = "VENDA"
     else:
-        st.session_state.ranking_global[estrategia] *= 1.02
+        core_signal = "AGUARDAR"
+
+    # EXTRA
+    if core_signal == "AGUARDAR":
+        return entrada_extra(df)
+
+    return core_signal
 
 # =========================
-# 🆕 RISCO
+# 🟨 HORÁRIO
 # =========================
-def protecao_risco(sequencia):
-    if len(sequencia) >= 3:
-        ultimos = sequencia[-3:]
-        if ultimos.count("LOSS") >= 2:
-            return True
-    return False
+def horario_sistema():
+    hora = datetime.now().hour
+    dia = datetime.now().weekday()
 
-# =========================
-# 🆕 NOTÍCIAS
-# =========================
-def noticias():
-    return random.choice(["BAIXO", "MÉDIO", "ALTO"])
-
-# =========================
-# 🧠 ESCOLHA IA
-# =========================
-def escolher_estrategia(df):
-
-    estrategias = {
-        "TENDENCIA": tendencia,
-        "PRICE_ACTION": price_action,
-        "REJEICAO": rejeicao,
-        "MACD": macd
+    return {
+        "operacao_liberada": hora >= 8,
+        "fim_de_semana": dia >= 5
     }
 
-    ranking = {}
-
-    for nome, func in estrategias.items():
-        wins = 0
-        total = 0
-
-        for i in range(40, len(df)-1):
-            sub = df.iloc[:i]
-            sinal = func(sub)
-
-            if sinal == "AGUARDAR":
-                continue
-
-            preco = sub["close"].iloc[-1]
-            prox = df["close"].iloc[i+1]
-
-            total += 1
-
-            if (sinal == "COMPRA" and prox > preco) or (sinal == "VENDA" and prox < preco):
-                wins += 1
-
-        base = wins / total if total > 0 else 0
-        ranking[nome] = base * st.session_state.ranking_global[nome]
-
-    melhor = max(ranking, key=ranking.get)
-    return melhor, ranking
-
 # =========================
-# 🟫 BACKTEST
+# 🧠 BACKTEST SIMPLES
 # =========================
 def backtest(df):
 
     wins = 0
     losses = 0
 
-    for i in range(40, len(df)-1):
+    for i in range(60, len(df) - 1):
 
         sub = df.iloc[:i]
-        melhor, _ = escolher_estrategia(sub)
+        sig = sinal(sub)
 
-        mapa = {
-            "TENDENCIA": tendencia,
-            "PRICE_ACTION": price_action,
-            "REJEICAO": rejeicao,
-            "MACD": macd
-        }
-
-        sinal = mapa[melhor](sub)
-
-        if sinal == "AGUARDAR":
+        if sig == "AGUARDAR":
             continue
 
-        preco = sub["close"].iloc[-1]
-        prox = df["close"].iloc[i+1]
+        price = sub["close"].iloc[-1]
+        next_price = df["close"].iloc[i + 1]
 
-        if (sinal == "COMPRA" and prox > preco) or (sinal == "VENDA" and prox < preco):
+        if (sig == "COMPRA" and next_price > price) or (sig == "VENDA" and next_price < price):
             wins += 1
         else:
             losses += 1
 
     total = wins + losses
-    return wins, losses, (wins/total*100 if total else 0)
+    return wins, losses, (wins / total * 100 if total else 0)
 
 # =========================
-# 🟦 EXECUÇÃO PRINCIPAL
+# 🟦 EXECUÇÃO
 # =========================
 if ligado:
 
@@ -258,73 +218,40 @@ if ligado:
 
         df = indicadores(df)
 
-        fase = fase_mercado()
         status = horario_sistema()
-        impacto = noticias()
 
-        rsi_compra, rsi_venda = ajustar_rsi(df)
-
-        melhor, ranking = escolher_estrategia(df)
-
-        mapa = {
-            "TENDENCIA": tendencia,
-            "PRICE_ACTION": price_action,
-            "REJEICAO": rejeicao,
-            "MACD": macd
-        }
-
-        sinal = mapa[melhor](df)
+        sinal_atual = sinal(df)
         preco = df["close"].iloc[-1]
 
-        # =========================
-        # 🔧 CONTROLES NOVOS
-        # =========================
         if not status["operacao_liberada"]:
-            sinal = "AGUARDAR"
+            sinal_atual = "AGUARDAR"
 
-        if impacto == "ALTO":
-            st.warning("📰 Notícia forte detectada")
-            sinal = "AGUARDAR"
-
-        if protecao_risco(st.session_state.sequencia):
-            st.warning("🛑 Proteção ativada")
-            sinal = "AGUARDAR"
-
-        # =========================
-        # 📊 PAINEL
-        # =========================
         st.markdown("## 📊 PAINEL IA")
 
         st.write("Ativo:", ativo)
         st.write("Preço:", preco)
-        st.write("Estratégia:", melhor)
-        st.write("Fase:", fase)
-        st.write("Sinal:", sinal)
+        st.write("Sinal:", sinal_atual)
 
-        st.markdown("## 📈 Ranking")
-        st.write(ranking)
-
-        # =========================
-        # 📌 OPERAÇÃO
-        # =========================
+        # operação
         atr = df["ATR"].iloc[-1]
 
-        if sinal != "AGUARDAR" and st.session_state.posicao is None:
+        if "posicao" not in st.session_state:
+            st.session_state.posicao = None
+
+        if sinal_atual != "AGUARDAR" and st.session_state.posicao is None:
 
             st.session_state.posicao = {
-                "tipo": sinal,
+                "tipo": sinal_atual,
                 "entrada": preco,
-                "tp": preco + atr*2 if sinal == "COMPRA" else preco - atr*2,
-                "sl": preco - atr if sinal == "COMPRA" else preco + atr
+                "tp": preco + atr*2 if sinal_atual == "COMPRA" else preco - atr*2,
+                "sl": preco - atr if sinal_atual == "COMPRA" else preco + atr
             }
 
         st.markdown("## 📌 OPERAÇÃO")
         st.write(st.session_state.posicao)
 
-        # =========================
-        # 📊 BACKTEST
-        # =========================
-        w,l,wr = backtest(df)
+        # backtest
+        w, l, wr = backtest(df)
 
         st.markdown("## 📊 BACKTEST")
         st.write(w, l, wr)
