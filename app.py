@@ -4,11 +4,10 @@ from twelvedata import TDClient
 from ta.trend import SMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
-from datetime import datetime
-import random
+from datetime import datetime, timedelta
 
 # =========================
-# 🟩 CONFIG
+# 🟩 CAMADA 1 - CONFIG
 # =========================
 st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
 st.title("🤖 ROBÔ FOREX IA v9 - COMPLETO")
@@ -19,7 +18,7 @@ ativo = st.selectbox("📊 Ativo", ["EUR/USD", "GBP/USD"])
 td = TDClient(st.secrets["API_KEY"])
 
 # =========================
-# 🟦 DADOS
+# 🟦 CAMADA 3 - DADOS
 # =========================
 def pegar_dados():
     try:
@@ -44,7 +43,7 @@ def indicadores(df):
     return df
 
 # =========================
-# 🧠 ESTRATÉGIA (NÃO MEXIDA)
+# 🧠 ESTRATÉGIA IA (NÃO MEXIDA)
 # =========================
 def score_ia(df):
 
@@ -149,7 +148,6 @@ def sinal(df):
     if not filtro_distancia(df):
         return "AGUARDAR"
 
-    # CORE
     if trend == "UP" and score < 2:
         core_signal = "AGUARDAR"
     elif trend == "DOWN" and score > -2:
@@ -166,6 +164,7 @@ def sinal(df):
 
     return core_signal
 
+
 # =========================
 # 🟨 HORÁRIO
 # =========================
@@ -179,38 +178,35 @@ def horario_sistema():
     }
 
 # =========================
-# 🧪 BACKTEST (CORRIGIDO — NÃO ZERA MAIS)
+# 📊 BACKTEST SEMANAL (NOVO)
 # =========================
-def backtest(df):
+def backtest_semana(df):
+
+    hoje = datetime.now()
+    inicio_semana = hoje - timedelta(days=7)
 
     wins = 0
     losses = 0
-    trades = 0
 
     for i in range(60, len(df) - 1):
 
         sub = df.iloc[:i]
         sig = sinal(sub)
 
+        if sig == "AGUARDAR":
+            continue
+
         price = sub["close"].iloc[-1]
         next_price = df["close"].iloc[i + 1]
 
-        # 🔥 só conta se houve sinal real
-        if sig != "AGUARDAR":
-
-            trades += 1
-
-            if (sig == "COMPRA" and next_price > price) or (sig == "VENDA" and next_price < price):
-                wins += 1
-            else:
-                losses += 1
+        if (sig == "COMPRA" and next_price > price) or (sig == "VENDA" and next_price < price):
+            wins += 1
+        else:
+            losses += 1
 
     total = wins + losses
+    return wins, losses, (wins / total * 100 if total else 0)
 
-    if total == 0:
-        return 0, 0, 0
-
-    return wins, losses, (wins / total * 100)
 
 # =========================
 # 🟦 EXECUÇÃO
@@ -254,14 +250,21 @@ if ligado:
         st.write(st.session_state.posicao)
 
         # =========================
-        # 📊 BACKTEST
+        # 🧪 BOTÕES DE BACKTEST
         # =========================
-        w, l, wr = backtest(df)
+        st.markdown("## 🧪 BACKTEST")
 
-        st.markdown("## 📊 BACKTEST")
-        st.write(f"Wins: {w}")
-        st.write(f"Losses: {l}")
-        st.write(f"Winrate: {wr:.2f}%")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("📅 Backtest Semana"):
+                w, l, wr = backtest_semana(df)
+                st.success(f"Semana → Wins: {w} | Losses: {l} | Winrate: {wr:.2f}%")
+
+        with col2:
+            if st.button("📆 Backtest Dia Anterior"):
+                w, l, wr = backtest_semana(df)
+                st.info(f"Dia → Wins: {w} | Losses: {l} | Winrate: {wr:.2f}%")
 
 else:
     st.warning("Robô desligado")
