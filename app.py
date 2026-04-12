@@ -7,9 +7,8 @@ from ta.volatility import AverageTrueRange
 from datetime import datetime
 import random
 
-# 📊 gráfico
+# 📊 GRÁFICO (NOVO - ÚNICA ADIÇÃO)
 import plotly.graph_objects as go
-from streamlit_autorefresh import st_autorefresh
 
 # =========================
 # 📩 EMAIL
@@ -18,8 +17,9 @@ import smtplib
 from email.mime.text import MIMEText
 
 def enviar_email(assunto, mensagem):
-    email = st.secrets["EMAIL"]
-    senha = st.secrets["SENHA"]
+
+    email = "claudineialvesjunior@gmail.com"
+    senha = "dvuw lmde sfse tyax"
 
     msg = MIMEText(mensagem)
     msg["Subject"] = assunto
@@ -36,7 +36,7 @@ def enviar_email(assunto, mensagem):
         pass
 
 # =========================
-# CONFIG
+# 🟩 CONFIG
 # =========================
 st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
 st.title("🤖 ROBÔ FOREX IA v9 - COMPLETO")
@@ -45,10 +45,11 @@ ligado = st.toggle("🔌 Ligar Robô", value=True)
 ativo = st.selectbox("📊 Ativo", ["EUR/USD", "GBP/USD"])
 
 td = TDClient(st.secrets["API_KEY"])
+
 ativos = ["EUR/USD", "GBP/USD"]
 
 # =========================
-# NOTÍCIAS
+# 📰 NOTÍCIAS
 # =========================
 def noticias():
     return random.choice([
@@ -58,46 +59,63 @@ def noticias():
     ])
 
 # =========================
-# RANKING
+# 🏆 RANKING
 # =========================
 def ranking_ativos():
+
     ranking = {}
 
     for a in ativos:
         try:
-            df = td.time_series(symbol=a, interval="15min", outputsize=200).as_pandas()
+            df = td.time_series(
+                symbol=a,
+                interval="15min",
+                outputsize=200
+            ).as_pandas()
+
             df = df[::-1].reset_index(drop=True)
 
-            for c in ["open","high","low","close"]:
+            for c in ["open", "high", "low", "close"]:
                 df[c] = pd.to_numeric(df[c], errors="coerce")
 
             df = df.dropna()
+
             df = indicadores(df)
 
-            ranking[a] = score_ia(df)
+            score = score_ia(df)
+
+            ranking[a] = score
+
         except:
             ranking[a] = 0
 
     melhor = max(ranking, key=ranking.get)
+
     return ranking, melhor
 
 # =========================
-# DADOS
+# 🟦 DADOS
 # =========================
 def pegar_dados():
     try:
-        df = td.time_series(symbol=ativo, interval="15min", outputsize=5000).as_pandas()
+        df = td.time_series(
+            symbol=ativo,
+            interval="15min",
+            outputsize=5000
+        ).as_pandas()
+
         df = df[::-1].reset_index(drop=True)
 
-        for c in ["open","high","low","close"]:
+        for c in ["open", "high", "low", "close"]:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
         return df.dropna()
+
     except:
         return None
 
 # =========================
-# INDICADORES
+# 🟩 INDICADORES
 # =========================
 def indicadores(df):
     df["MA9"] = SMAIndicator(df["close"], 9).sma_indicator()
@@ -107,110 +125,234 @@ def indicadores(df):
     return df
 
 # =========================
-# GRÁFICO
+# 📊 FUNÇÃO DO GRÁFICO (NOVO)
 # =========================
-def grafico(df):
+def mostrar_grafico(df):
+
+    df_plot = df.tail(100)
 
     fig = go.Figure()
 
     fig.add_trace(go.Candlestick(
-        x=df.index,
-        open=df['open'],
-        high=df['high'],
-        low=df['low'],
-        close=df['close']
+        x=df_plot.index,
+        open=df_plot['open'],
+        high=df_plot['high'],
+        low=df_plot['low'],
+        close=df_plot['close'],
+        name="Preço"
     ))
 
-    fig.add_trace(go.Scatter(x=df.index, y=df["MA9"], name="MA9"))
-    fig.add_trace(go.Scatter(x=df.index, y=df["MA21"], name="MA21"))
+    fig.add_trace(go.Scatter(
+        x=df_plot.index,
+        y=df_plot["MA9"],
+        name="MA9",
+        line=dict(width=1)
+    ))
 
-    sig = sinal(df)
+    fig.add_trace(go.Scatter(
+        x=df_plot.index,
+        y=df_plot["MA21"],
+        name="MA21",
+        line=dict(width=1)
+    ))
 
-    if sig != "AGUARDAR":
-        fig.add_trace(go.Scatter(
-            x=[df.index[-1]],
-            y=[df["close"].iloc[-1]],
-            mode="markers+text",
-            text=[sig],
-            textposition="top center"
-        ))
-
-    fig.update_layout(height=500, xaxis_rangeslider_visible=False)
+    fig.update_layout(
+        height=450,
+        margin=dict(l=10, r=10, t=10, b=10),
+        xaxis_rangeslider_visible=False
+    )
 
     return fig
 
 # =========================
-# IA
+# 🧠 IA
 # =========================
 def score_ia(df):
+
     score = 0
 
-    score += 1 if df["MA9"].iloc[-1] > df["MA21"].iloc[-1] else -1
+    if df["MA9"].iloc[-1] > df["MA21"].iloc[-1]:
+        score += 1
+    else:
+        score -= 1
 
     rsi = df["RSI"].iloc[-1]
-    if rsi > 55: score += 1
-    elif rsi < 45: score -= 1
+    if rsi > 55:
+        score += 1
+    elif rsi < 45:
+        score -= 1
 
     m = MACD(df["close"])
-    score += 1 if m.macd().iloc[-1] > m.macd_signal().iloc[-1] else -1
+    if m.macd().iloc[-1] > m.macd_signal().iloc[-1]:
+        score += 1
+    else:
+        score -= 1
 
     atr = df["ATR"].iloc[-1]
-    score += 1 if atr > df["ATR"].rolling(50).mean().iloc[-1] else -1
+    if atr > df["ATR"].rolling(50).mean().iloc[-1]:
+        score += 1
+    else:
+        score -= 1
 
     return score
 
+# =========================
+# 🧠 RESTO
+# =========================
 def tendencia_forte(df):
-    closes = df["close"].tail(10)
-    alta = sum(closes.iloc[i] > closes.iloc[i-1] for i in range(1,len(closes)))
-    baixa = sum(closes.iloc[i] < closes.iloc[i-1] for i in range(1,len(closes)))
 
-    if alta >= 8: return "UP"
-    if baixa >= 8: return "DOWN"
+    closes = df["close"].tail(10)
+
+    alta = 0
+    baixa = 0
+
+    for i in range(1, len(closes)):
+        if closes.iloc[i] > closes.iloc[i-1]:
+            alta += 1
+        else:
+            baixa += 1
+
+    if alta >= 8:
+        return "UP"
+
+    if baixa >= 8:
+        return "DOWN"
+
     return "LATERAL"
 
-def filtro_distancia(df):
-    return abs(df["close"].iloc[-1] - df["MA21"].iloc[-1]) <= df["ATR"].iloc[-1]*1.8
 
-def entrada_extra(df):
+def filtro_distancia(df):
+
     price = df["close"].iloc[-1]
     ma21 = df["MA21"].iloc[-1]
     atr = df["ATR"].iloc[-1]
 
-    if tendencia_forte(df) == "UP" and score_ia(df) >= 2 and abs(price-ma21)<atr*0.9 and df["close"].iloc[-1]>df["close"].iloc[-2]:
+    distancia = abs(price - ma21)
+
+    if distancia > atr * 1.8:
+        return False
+
+    return True
+
+
+def entrada_extra(df):
+
+    price = df["close"].iloc[-1]
+    ma21 = df["MA21"].iloc[-1]
+    atr = df["ATR"].iloc[-1]
+
+    score = score_ia(df)
+    trend = tendencia_forte(df)
+
+    pullback = abs(price - ma21) < atr * 0.9
+
+    last = df["close"].iloc[-1]
+    prev = df["close"].iloc[-2]
+
+    micro_up = last > prev
+    micro_down = last < prev
+
+    if trend == "UP" and score >= 2 and pullback and micro_up:
         return "COMPRA"
 
-    if tendencia_forte(df) == "DOWN" and score_ia(df) <= -2 and abs(price-ma21)<atr*0.9 and df["close"].iloc[-1]<df["close"].iloc[-2]:
+    if trend == "DOWN" and score <= -2 and pullback and micro_down:
         return "VENDA"
 
     return "AGUARDAR"
 
+
 def sinal(df):
+
     score = score_ia(df)
     trend = tendencia_forte(df)
 
-    if trend == "LATERAL" or not filtro_distancia(df):
+    if trend == "LATERAL":
         return "AGUARDAR"
 
-    if trend == "UP" and score >= 3:
-        return "COMPRA"
-    if trend == "DOWN" and score <= -3:
-        return "VENDA"
+    if not filtro_distancia(df):
+        return "AGUARDAR"
 
-    return entrada_extra(df)
+    if trend == "UP" and score < 2:
+        core_signal = "AGUARDAR"
+    elif trend == "DOWN" and score > -2:
+        core_signal = "AGUARDAR"
+    elif score >= 3 and trend == "UP":
+        core_signal = "COMPRA"
+    elif score <= -3 and trend == "DOWN":
+        core_signal = "VENDA"
+    else:
+        core_signal = "AGUARDAR"
+
+    if core_signal == "AGUARDAR":
+        return entrada_extra(df)
+
+    return core_signal
 
 # =========================
-# HORÁRIO
+# 🕒 HORÁRIO
 # =========================
-def horario():
-    now = datetime.now()
-    return now.hour >= 8 and now.weekday() < 5
+def horario_sistema():
+    hora = datetime.now().hour
+    dia = datetime.now().weekday()
+
+    return {
+        "operacao_liberada": hora >= 8 and dia < 5,
+        "fim_de_semana": dia >= 5
+    }
+
+# =========================
+# ⏰ ALERTA
+# =========================
+def alerta_horario():
+
+    agora = datetime.now()
+    hora = agora.hour
+    minuto = agora.minute
+
+    mercado_aberto = hora >= 8 and hora < 18 and agora.weekday() < 5
+
+    alerta_pre_entrada = (
+        (hora == 7 and minuto >= 55) or
+        (hora == 8 and minuto <= 5)
+    )
+
+    return {
+        "hora_atual": f"{hora:02d}:{minuto:02d}",
+        "mercado_aberto": mercado_aberto,
+        "alerta_pre_entrada": alerta_pre_entrada
+    }
+
+# =========================
+# BACKTEST
+# =========================
+def backtest(df):
+
+    wins = 0
+    losses = 0
+
+    for i in range(60, len(df) - 1):
+
+        sub = df.iloc[:i]
+        sig = sinal(sub)
+
+        if sig == "AGUARDAR":
+            continue
+
+        price = sub["close"].iloc[-1]
+        next_price = df["close"].iloc[i + 1]
+
+        if (sig == "COMPRA" and next_price > price) or (sig == "VENDA" and next_price < price):
+            wins += 1
+        else:
+            losses += 1
+
+    total = wins + losses
+    return wins, losses, (wins / total * 100 if total else 0)
 
 # =========================
 # EXECUÇÃO
 # =========================
 if ligado:
-
-    st_autorefresh(interval=60000)
 
     df = pegar_dados()
 
@@ -218,26 +360,73 @@ if ligado:
 
         df = indicadores(df)
 
+        status = horario_sistema()
+
         sinal_atual = sinal(df)
         preco = df["close"].iloc[-1]
 
         impacto = noticias()
-        ranking, melhor = ranking_ativos()
+        ranking, melhor_ativo = ranking_ativos()
+        info_horario = alerta_horario()
 
-        if horario():
+        if status["operacao_liberada"]:
+
             if sinal_atual == "COMPRA":
-                enviar_email("COMPRA", f"{ativo} {preco}")
+                enviar_email("📈 COMPRA", f"{ativo} - {preco}")
+
             if sinal_atual == "VENDA":
-                enviar_email("VENDA", f"{ativo} {preco}")
+                enviar_email("📉 VENDA", f"{ativo} - {preco}")
+
         else:
             sinal_atual = "AGUARDAR"
+
+        st.markdown("## 📊 PAINEL IA")
+
+        # 📊 GRÁFICO (NOVO)
+        st.markdown("## 📈 GRÁFICO")
+        st.plotly_chart(mostrar_grafico(df), use_container_width=True)
 
         st.write("Ativo:", ativo)
         st.write("Preço:", preco)
         st.write("Sinal:", sinal_atual)
 
-        st.plotly_chart(grafico(df), use_container_width=True)
+        st.markdown("## ⏰ Horário do Mercado")
+        st.write("Hora atual:", info_horario["hora_atual"])
 
-        st.write("Notícias:", impacto)
-        st.write("Ranking:", ranking)
-        st.write("Melhor:", melhor)
+        if info_horario["alerta_pre_entrada"]:
+            st.warning("⏳ Possível entrada próxima")
+
+        if not info_horario["mercado_aberto"]:
+            st.error("❌ Mercado fechado")
+
+        st.markdown("## 📰 Notícias do Mercado")
+        st.write(impacto)
+
+        st.markdown("## 🏆 Ranking de Ativos")
+        st.write(ranking)
+        st.write("Melhor ativo:", melhor_ativo)
+
+        atr = df["ATR"].iloc[-1]
+
+        if "posicao" not in st.session_state:
+            st.session_state.posicao = None
+
+        if sinal_atual != "AGUARDAR" and st.session_state.posicao is None:
+
+            st.session_state.posicao = {
+                "tipo": sinal_atual,
+                "entrada": preco,
+                "tp": preco + atr*2 if sinal_atual == "COMPRA" else preco - atr*2,
+                "sl": preco - atr if sinal_atual == "COMPRA" else preco + atr
+            }
+
+        st.markdown("## 📌 OPERAÇÃO")
+        st.write(st.session_state.posicao)
+
+        w, l, wr = backtest(df)
+
+        st.markdown("## 📊 BACKTEST")
+        st.write(w, l, wr)
+
+else:
+    st.warning("Robô desligado")
