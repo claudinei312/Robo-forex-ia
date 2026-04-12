@@ -44,7 +44,6 @@ ativo = st.selectbox("📊 Ativo", ["EUR/USD", "GBP/USD"])
 
 td = TDClient(st.secrets["API_KEY"])
 
-# ativos para ranking
 ativos = ["EUR/USD", "GBP/USD"]
 
 # =========================
@@ -58,7 +57,7 @@ def noticias():
     ])
 
 # =========================
-# 🏆 RANKING DE ATIVOS
+# 🏆 RANKING
 # =========================
 def ranking_ativos():
 
@@ -124,7 +123,7 @@ def indicadores(df):
     return df
 
 # =========================
-# 🧠 IA (SEM MEXER)
+# 🧠 IA
 # =========================
 def score_ia(df):
 
@@ -156,7 +155,7 @@ def score_ia(df):
     return score
 
 # =========================
-# 🧠 RESTO DA ESTRATÉGIA
+# 🧠 ESTRATÉGIA
 # =========================
 def tendencia_forte(df):
 
@@ -260,6 +259,28 @@ def horario_sistema():
     }
 
 # =========================
+# ⏰ HORÁRIO DE ENTRADA (NOVO)
+# =========================
+def alerta_horario():
+
+    agora = datetime.now()
+    hora = agora.hour
+    minuto = agora.minute
+
+    mercado_aberto = hora >= 8 and hora < 18 and agora.weekday() < 5
+
+    alerta_pre_entrada = (
+        (hora == 7 and minuto >= 55) or
+        (hora == 8 and minuto <= 5)
+    )
+
+    return {
+        "hora_atual": f"{hora:02d}:{minuto:02d}",
+        "mercado_aberto": mercado_aberto,
+        "alerta_pre_entrada": alerta_pre_entrada
+    }
+
+# =========================
 # 🧠 BACKTEST
 # =========================
 def backtest(df):
@@ -305,22 +326,16 @@ if ligado:
         impacto = noticias()
         ranking, melhor_ativo = ranking_ativos()
 
-        # =========================
-        # 📩 EMAIL (NOVO)
-        # =========================
+        info_horario = alerta_horario()
+
+        # EMAIL
         if status["operacao_liberada"]:
 
             if sinal_atual == "COMPRA":
-                enviar_email(
-                    "📈 SINAL DE COMPRA",
-                    f"Ativo: {ativo}\nPreço: {preco}"
-                )
+                enviar_email("📈 COMPRA", f"{ativo} - {preco}")
 
             if sinal_atual == "VENDA":
-                enviar_email(
-                    "📉 SINAL DE VENDA",
-                    f"Ativo: {ativo}\nPreço: {preco}"
-                )
+                enviar_email("📉 VENDA", f"{ativo} - {preco}")
 
         else:
             sinal_atual = "AGUARDAR"
@@ -334,9 +349,21 @@ if ligado:
         st.write("Preço:", preco)
         st.write("Sinal:", sinal_atual)
 
+        # ⏰ HORÁRIO
+        st.markdown("## ⏰ Horário do Mercado")
+        st.write("Hora atual:", info_horario["hora_atual"])
+
+        if info_horario["alerta_pre_entrada"]:
+            st.warning("⏳ Possível entrada próxima")
+
+        if not info_horario["mercado_aberto"]:
+            st.error("❌ Mercado fechado")
+
+        # 📰 NOTÍCIAS
         st.markdown("## 📰 Notícias do Mercado")
         st.write(impacto)
 
+        # 🏆 RANKING
         st.markdown("## 🏆 Ranking de Ativos")
         st.write(ranking)
         st.write("Melhor ativo:", melhor_ativo)
