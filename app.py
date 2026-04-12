@@ -44,7 +44,7 @@ def indicadores(df):
     return df
 
 # =========================
-# 🧠 ESTRATÉGIA 70% (SEM ALTERAR)
+# 🧠 ESTRATÉGIA 70% (INALTERADA)
 # =========================
 def score_ia(df):
 
@@ -179,12 +179,13 @@ def horario_sistema():
     }
 
 # =========================
-# 🧪 BACKTEST CORRIGIDO (SEM ZERAR)
+# 🧪 BACKTEST CORRIGIDO (REAL)
 # =========================
 def backtest(df):
 
     wins = 0
     losses = 0
+    trades = 0
 
     for i in range(60, len(df) - 1):
 
@@ -195,8 +196,10 @@ def backtest(df):
         price = sub["close"].iloc[-1]
         next_price = df["close"].iloc[i + 1]
 
-        # 🔥 só conta quando existe entrada real
+        # só conta se teve entrada real
         if sig != "AGUARDAR":
+
+            trades += 1
 
             if (sig == "COMPRA" and next_price > price) or (sig == "VENDA" and next_price < price):
                 wins += 1
@@ -251,9 +254,6 @@ if ligado:
         st.markdown("## 📌 OPERAÇÃO")
         st.write(st.session_state.posicao)
 
-        # =========================
-        # 📊 BACKTEST COM BOTÃO
-        # =========================
         st.markdown("## 📊 BACKTEST")
 
         if st.button("📊 Rodar Backtest"):
