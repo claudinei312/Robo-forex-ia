@@ -7,7 +7,7 @@ from ta.volatility import AverageTrueRange
 from datetime import datetime
 import random
 
-# 📊 GRÁFICO
+# 📊 GRÁFICO (ADICIONADO)
 import plotly.graph_objects as go
 
 # =========================
@@ -125,7 +125,7 @@ def indicadores(df):
     return df
 
 # =========================
-# 📈 GRÁFICO LIMPO (AJUSTADO)
+# 📈 GRÁFICO (MELHORADO)
 # =========================
 def mostrar_grafico(df):
 
@@ -201,7 +201,7 @@ def score_ia(df):
     return score
 
 # =========================
-# RESTO (INALTERADO)
+# RESTO
 # =========================
 def tendencia_forte(df):
     closes = df["close"].tail(10)
@@ -222,9 +222,7 @@ def filtro_distancia(df):
     price = df["close"].iloc[-1]
     ma21 = df["MA21"].iloc[-1]
     atr = df["ATR"].iloc[-1]
-    if abs(price - ma21) > atr * 1.8:
-        return False
-    return True
+    return abs(price - ma21) <= atr * 1.8
 
 def entrada_extra(df):
     price = df["close"].iloc[-1]
@@ -255,7 +253,37 @@ def sinal(df):
 def horario_sistema():
     hora = datetime.now().hour
     dia = datetime.now().weekday()
-    return {"operacao_liberada": hora >= 8 and dia < 5}
+    return {
+        "operacao_liberada": hora >= 8 and dia < 5,
+        "fim_de_semana": dia >= 5
+    }
+
+# =========================
+# BACKTEST
+# =========================
+def backtest(df):
+
+    wins = 0
+    losses = 0
+
+    for i in range(60, len(df) - 1):
+
+        sub = df.iloc[:i]
+        sig = sinal(sub)
+
+        if sig == "AGUARDAR":
+            continue
+
+        price = sub["close"].iloc[-1]
+        next_price = df["close"].iloc[i + 1]
+
+        if (sig == "COMPRA" and next_price > price) or (sig == "VENDA" and next_price < price):
+            wins += 1
+        else:
+            losses += 1
+
+    total = wins + losses
+    return wins, losses, (wins / total * 100 if total else 0)
 
 # =========================
 # EXECUÇÃO
@@ -268,17 +296,60 @@ if ligado:
 
         df = indicadores(df)
 
+        status = horario_sistema()
+
         sinal_atual = sinal(df)
         preco = df["close"].iloc[-1]
 
+        impacto = noticias()
+        ranking, melhor_ativo = ranking_ativos()
+
+        # EMAIL
+        if status["operacao_liberada"]:
+            if sinal_atual == "COMPRA":
+                enviar_email("📈 COMPRA", f"{ativo} - {preco}")
+            if sinal_atual == "VENDA":
+                enviar_email("📉 VENDA", f"{ativo} - {preco}")
+        else:
+            sinal_atual = "AGUARDAR"
+
+        # PAINEL
         st.markdown("## 📊 PAINEL IA")
 
-        # 🔥 GRÁFICO LIMPO
+        # 🔥 GRÁFICO AQUI
         st.plotly_chart(mostrar_grafico(df), use_container_width=True)
 
         st.write("Ativo:", ativo)
         st.write("Preço:", preco)
         st.write("Sinal:", sinal_atual)
+
+        st.markdown("## 📰 Notícias do Mercado")
+        st.write(impacto)
+
+        st.markdown("## 🏆 Ranking de Ativos")
+        st.write(ranking)
+        st.write("Melhor ativo:", melhor_ativo)
+
+        atr = df["ATR"].iloc[-1]
+
+        if "posicao" not in st.session_state:
+            st.session_state.posicao = None
+
+        if sinal_atual != "AGUARDAR" and st.session_state.posicao is None:
+            st.session_state.posicao = {
+                "tipo": sinal_atual,
+                "entrada": preco,
+                "tp": preco + atr*2 if sinal_atual == "COMPRA" else preco - atr*2,
+                "sl": preco - atr if sinal_atual == "COMPRA" else preco + atr
+            }
+
+        st.markdown("## 📌 OPERAÇÃO")
+        st.write(st.session_state.posicao)
+
+        w, l, wr = backtest(df)
+
+        st.markdown("## 📊 BACKTEST")
+        st.write(w, l, wr)
 
 else:
     st.warning("Robô desligado")
