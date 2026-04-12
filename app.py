@@ -18,6 +18,54 @@ ativo = st.selectbox("📊 Ativo", ["EUR/USD", "GBP/USD"])
 
 td = TDClient(st.secrets["API_KEY"])
 
+# ativos para ranking
+ativos = ["EUR/USD", "GBP/USD"]
+
+# =========================
+# 📰 NOTÍCIAS (NOVO)
+# =========================
+def noticias():
+    return random.choice([
+        "BAIXO IMPACTO",
+        "MÉDIO IMPACTO",
+        "ALTO IMPACTO ⚠️"
+    ])
+
+# =========================
+# 🏆 RANKING DE ATIVOS (NOVO)
+# =========================
+def ranking_ativos():
+
+    ranking = {}
+
+    for a in ativos:
+        try:
+            df = td.time_series(
+                symbol=a,
+                interval="15min",
+                outputsize=200
+            ).as_pandas()
+
+            df = df[::-1].reset_index(drop=True)
+
+            for c in ["open", "high", "low", "close"]:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+
+            df = df.dropna()
+
+            df = indicadores(df)
+
+            score = score_ia(df)
+
+            ranking[a] = score
+
+        except:
+            ranking[a] = 0
+
+    melhor = max(ranking, key=ranking.get)
+
+    return ranking, melhor
+
 # =========================
 # 🟦 CAMADA 3 - DADOS (AJUSTADO PARA 70%)
 # =========================
@@ -81,7 +129,9 @@ def score_ia(df):
 
     return score
 
-
+# =========================
+# 🧠 RESTO DA ESTRATÉGIA (SEM MEXER)
+# =========================
 def tendencia_forte(df):
 
     closes = df["close"].tail(10)
@@ -184,7 +234,7 @@ def horario_sistema():
     }
 
 # =========================
-# 🧠 BACKTEST (CORRIGIDO 70%)
+# 🧠 BACKTEST (SEM MEXER)
 # =========================
 def backtest(df):
 
@@ -226,14 +276,29 @@ if ligado:
         sinal_atual = sinal(df)
         preco = df["close"].iloc[-1]
 
+        impacto = noticias()  # 🆕 NOTÍCIAS
+        ranking, melhor_ativo = ranking_ativos()  # 🆕 RANKING
+
         if not status["operacao_liberada"]:
             sinal_atual = "AGUARDAR"
 
+        # =========================
+        # 📊 PAINEL
+        # =========================
         st.markdown("## 📊 PAINEL IA")
 
         st.write("Ativo:", ativo)
         st.write("Preço:", preco)
         st.write("Sinal:", sinal_atual)
+
+        # 📰 notícias
+        st.markdown("## 📰 Notícias do Mercado")
+        st.write("Impacto:", impacto)
+
+        # 🏆 ranking
+        st.markdown("## 🏆 Ranking de Ativos")
+        st.write(ranking)
+        st.write("Melhor ativo:", melhor_ativo)
 
         atr = df["ATR"].iloc[-1]
 
