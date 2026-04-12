@@ -1,5 +1,6 @@
 streamlit
-streamlit-autorefresh
 pandas
 twelvedata
 ta
+plotly
+streamlit-autorefresh
