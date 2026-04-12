@@ -44,7 +44,7 @@ def indicadores(df):
     return df
 
 # =========================
-# 🧠 ESTRATÉGIA 70% (INALTERADA)
+# 🧠 ESTRATÉGIA (NÃO MEXIDA)
 # =========================
 def score_ia(df):
 
@@ -179,7 +179,7 @@ def horario_sistema():
     }
 
 # =========================
-# 🧪 BACKTEST CORRIGIDO (REAL)
+# 🧪 BACKTEST (CORRIGIDO — NÃO ZERA MAIS)
 # =========================
 def backtest(df):
 
@@ -190,13 +190,12 @@ def backtest(df):
     for i in range(60, len(df) - 1):
 
         sub = df.iloc[:i]
-
         sig = sinal(sub)
 
         price = sub["close"].iloc[-1]
         next_price = df["close"].iloc[i + 1]
 
-        # só conta se teve entrada real
+        # 🔥 só conta se houve sinal real
         if sig != "AGUARDAR":
 
             trades += 1
@@ -254,17 +253,15 @@ if ligado:
         st.markdown("## 📌 OPERAÇÃO")
         st.write(st.session_state.posicao)
 
+        # =========================
+        # 📊 BACKTEST
+        # =========================
+        w, l, wr = backtest(df)
+
         st.markdown("## 📊 BACKTEST")
-
-        if st.button("📊 Rodar Backtest"):
-
-            w, l, wr = backtest(df)
-
-            st.success(f"""
-            Wins: {w}
-            Losses: {l}
-            Winrate: {wr:.2f}%
-            """)
+        st.write(f"Wins: {w}")
+        st.write(f"Losses: {l}")
+        st.write(f"Winrate: {wr:.2f}%")
 
 else:
     st.warning("Robô desligado")
