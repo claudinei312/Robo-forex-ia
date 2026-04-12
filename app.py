@@ -8,6 +8,32 @@ from datetime import datetime
 import random
 
 # =========================
+# 📩 EMAIL (NOVO)
+# =========================
+import smtplib
+from email.mime.text import MIMEText
+
+def enviar_email(assunto, mensagem):
+
+    email = "claudineialvesjunior@gmail.com"
+    senha = "dvuw lmde sfse tyax"
+
+    msg = MIMEText(mensagem)
+    msg["Subject"] = assunto
+    msg["From"] = email
+    msg["To"] = email
+
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(email, senha)
+        server.sendmail(email, email, msg.as_string())
+        server.quit()
+    except:
+        pass
+
+
+# =========================
 # 🟩 CAMADA 1 - CONFIG
 # =========================
 st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
@@ -22,7 +48,7 @@ td = TDClient(st.secrets["API_KEY"])
 ativos = ["EUR/USD", "GBP/USD"]
 
 # =========================
-# 📰 NOTÍCIAS (NOVO)
+# 📰 NOTÍCIAS
 # =========================
 def noticias():
     return random.choice([
@@ -32,7 +58,7 @@ def noticias():
     ])
 
 # =========================
-# 🏆 RANKING DE ATIVOS (NOVO)
+# 🏆 RANKING DE ATIVOS
 # =========================
 def ranking_ativos():
 
@@ -67,7 +93,7 @@ def ranking_ativos():
     return ranking, melhor
 
 # =========================
-# 🟦 CAMADA 3 - DADOS (AJUSTADO PARA 70%)
+# 🟦 DADOS
 # =========================
 def pegar_dados():
     try:
@@ -98,7 +124,7 @@ def indicadores(df):
     return df
 
 # =========================
-# 🧠 ESTRATÉGIA IA (70% BASE - NÃO MEXER)
+# 🧠 IA (SEM MEXER)
 # =========================
 def score_ia(df):
 
@@ -130,7 +156,7 @@ def score_ia(df):
     return score
 
 # =========================
-# 🧠 RESTO DA ESTRATÉGIA (SEM MEXER)
+# 🧠 RESTO DA ESTRATÉGIA
 # =========================
 def tendencia_forte(df):
 
@@ -222,19 +248,19 @@ def sinal(df):
     return core_signal
 
 # =========================
-# 🟨 HORÁRIO
+# 🕒 HORÁRIO (SEG–SEX)
 # =========================
 def horario_sistema():
     hora = datetime.now().hour
     dia = datetime.now().weekday()
 
     return {
-        "operacao_liberada": hora >= 8,
+        "operacao_liberada": hora >= 8 and dia < 5,
         "fim_de_semana": dia >= 5
     }
 
 # =========================
-# 🧠 BACKTEST (SEM MEXER)
+# 🧠 BACKTEST
 # =========================
 def backtest(df):
 
@@ -276,10 +302,27 @@ if ligado:
         sinal_atual = sinal(df)
         preco = df["close"].iloc[-1]
 
-        impacto = noticias()  # 🆕 NOTÍCIAS
-        ranking, melhor_ativo = ranking_ativos()  # 🆕 RANKING
+        impacto = noticias()
+        ranking, melhor_ativo = ranking_ativos()
 
-        if not status["operacao_liberada"]:
+        # =========================
+        # 📩 EMAIL (NOVO)
+        # =========================
+        if status["operacao_liberada"]:
+
+            if sinal_atual == "COMPRA":
+                enviar_email(
+                    "📈 SINAL DE COMPRA",
+                    f"Ativo: {ativo}\nPreço: {preco}"
+                )
+
+            if sinal_atual == "VENDA":
+                enviar_email(
+                    "📉 SINAL DE VENDA",
+                    f"Ativo: {ativo}\nPreço: {preco}"
+                )
+
+        else:
             sinal_atual = "AGUARDAR"
 
         # =========================
@@ -291,11 +334,9 @@ if ligado:
         st.write("Preço:", preco)
         st.write("Sinal:", sinal_atual)
 
-        # 📰 notícias
         st.markdown("## 📰 Notícias do Mercado")
-        st.write("Impacto:", impacto)
+        st.write(impacto)
 
-        # 🏆 ranking
         st.markdown("## 🏆 Ranking de Ativos")
         st.write(ranking)
         st.write("Melhor ativo:", melhor_ativo)
@@ -317,7 +358,6 @@ if ligado:
         st.markdown("## 📌 OPERAÇÃO")
         st.write(st.session_state.posicao)
 
-        # BACKTEST
         w, l, wr = backtest(df)
 
         st.markdown("## 📊 BACKTEST")
