@@ -8,7 +8,7 @@ from datetime import datetime
 import random
 
 # =========================
-# 🟩 CAMADA 1 - CONFIG
+# 🟩 CONFIG
 # =========================
 st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
 st.title("🤖 ROBÔ FOREX IA v9 - COMPLETO")
@@ -44,7 +44,7 @@ def indicadores(df):
     return df
 
 # =========================
-# 🧠 ESTRATÉGIA (70% - NÃO MEXER)
+# 🧠 ESTRATÉGIA 70% (NÃO MEXER)
 # =========================
 def score_ia(df):
 
@@ -179,16 +179,18 @@ def horario_sistema():
     }
 
 # =========================
-# 🧪 BACKTEST (CORRIGIDO)
+# 🧪 BACKTEST (CORRIGIDO DEFINITIVO)
 # =========================
 def backtest(df):
 
     wins = 0
     losses = 0
+    trades = 0
 
     for i in range(60, len(df) - 1):
 
         sub = df.iloc[:i]
+
         sig = sinal(sub)
 
         if sig == "AGUARDAR":
@@ -197,13 +199,17 @@ def backtest(df):
         price = sub["close"].iloc[-1]
         next_price = df["close"].iloc[i + 1]
 
+        trades += 1
+
         if (sig == "COMPRA" and next_price > price) or (sig == "VENDA" and next_price < price):
             wins += 1
         else:
             losses += 1
 
-    total = wins + losses
-    wr = (wins / total * 100) if total > 0 else 0
+    if trades == 0:
+        return 0, 0, 0
+
+    wr = (wins / (wins + losses)) * 100
 
     return wins, losses, wr
 
@@ -249,18 +255,17 @@ if ligado:
         st.write(st.session_state.posicao)
 
         # =========================
-        # 📊 BACKTEST (BOTÃO CORRIGIDO)
+        # 📊 BACKTEST
         # =========================
-        st.markdown("## 🧪 BACKTEST")
+        st.markdown("## 📊 BACKTEST")
 
-        if st.button("📊 Rodar Backtest"):
-            w, l, wr = backtest(df)
+        w, l, wr = backtest(df)
 
-            st.success(f"""
-            Wins: {w}
-            Losses: {l}
-            Winrate: {wr:.2f}%
-            """)
+        st.success(f"""
+        Wins: {w}
+        Losses: {l}
+        Winrate: {wr:.2f}%
+        """)
 
 else:
     st.warning("Robô desligado")
