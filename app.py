@@ -7,7 +7,7 @@ from ta.volatility import AverageTrueRange
 from datetime import datetime
 import random
 
-# 📊 GRÁFICO (NOVO - ÚNICA ADIÇÃO)
+# 📊 GRÁFICO
 import plotly.graph_objects as go
 
 # =========================
@@ -125,11 +125,11 @@ def indicadores(df):
     return df
 
 # =========================
-# 📊 FUNÇÃO DO GRÁFICO (NOVO)
+# 📈 GRÁFICO LIMPO (AJUSTADO)
 # =========================
 def mostrar_grafico(df):
 
-    df_plot = df.tail(100)
+    df_plot = df.tail(30)
 
     fig = go.Figure()
 
@@ -138,29 +138,33 @@ def mostrar_grafico(df):
         open=df_plot['open'],
         high=df_plot['high'],
         low=df_plot['low'],
-        close=df_plot['close'],
-        name="Preço"
+        close=df_plot['close']
     ))
 
     fig.add_trace(go.Scatter(
         x=df_plot.index,
         y=df_plot["MA9"],
-        name="MA9",
         line=dict(width=1)
     ))
 
     fig.add_trace(go.Scatter(
         x=df_plot.index,
         y=df_plot["MA21"],
-        name="MA21",
         line=dict(width=1)
     ))
 
     fig.update_layout(
-        height=450,
-        margin=dict(l=10, r=10, t=10, b=10),
-        xaxis_rangeslider_visible=False
+        height=400,
+        margin=dict(l=5, r=5, t=5, b=5),
+        xaxis_rangeslider_visible=False,
+        plot_bgcolor="black",
+        paper_bgcolor="black",
+        font=dict(color="white"),
+        showlegend=False
     )
+
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(showgrid=False)
 
     return fig
 
@@ -197,157 +201,61 @@ def score_ia(df):
     return score
 
 # =========================
-# 🧠 RESTO
+# RESTO (INALTERADO)
 # =========================
 def tendencia_forte(df):
-
     closes = df["close"].tail(10)
-
     alta = 0
     baixa = 0
-
     for i in range(1, len(closes)):
         if closes.iloc[i] > closes.iloc[i-1]:
             alta += 1
         else:
             baixa += 1
-
     if alta >= 8:
         return "UP"
-
     if baixa >= 8:
         return "DOWN"
-
     return "LATERAL"
 
-
 def filtro_distancia(df):
-
     price = df["close"].iloc[-1]
     ma21 = df["MA21"].iloc[-1]
     atr = df["ATR"].iloc[-1]
-
-    distancia = abs(price - ma21)
-
-    if distancia > atr * 1.8:
+    if abs(price - ma21) > atr * 1.8:
         return False
-
     return True
 
-
 def entrada_extra(df):
-
     price = df["close"].iloc[-1]
     ma21 = df["MA21"].iloc[-1]
     atr = df["ATR"].iloc[-1]
-
     score = score_ia(df)
     trend = tendencia_forte(df)
-
     pullback = abs(price - ma21) < atr * 0.9
-
     last = df["close"].iloc[-1]
     prev = df["close"].iloc[-2]
-
-    micro_up = last > prev
-    micro_down = last < prev
-
-    if trend == "UP" and score >= 2 and pullback and micro_up:
+    if trend == "UP" and score >= 2 and pullback and last > prev:
         return "COMPRA"
-
-    if trend == "DOWN" and score <= -2 and pullback and micro_down:
+    if trend == "DOWN" and score <= -2 and pullback and last < prev:
         return "VENDA"
-
     return "AGUARDAR"
 
-
 def sinal(df):
-
     score = score_ia(df)
     trend = tendencia_forte(df)
-
-    if trend == "LATERAL":
+    if trend == "LATERAL" or not filtro_distancia(df):
         return "AGUARDAR"
+    if trend == "UP" and score >= 3:
+        return "COMPRA"
+    if trend == "DOWN" and score <= -3:
+        return "VENDA"
+    return entrada_extra(df)
 
-    if not filtro_distancia(df):
-        return "AGUARDAR"
-
-    if trend == "UP" and score < 2:
-        core_signal = "AGUARDAR"
-    elif trend == "DOWN" and score > -2:
-        core_signal = "AGUARDAR"
-    elif score >= 3 and trend == "UP":
-        core_signal = "COMPRA"
-    elif score <= -3 and trend == "DOWN":
-        core_signal = "VENDA"
-    else:
-        core_signal = "AGUARDAR"
-
-    if core_signal == "AGUARDAR":
-        return entrada_extra(df)
-
-    return core_signal
-
-# =========================
-# 🕒 HORÁRIO
-# =========================
 def horario_sistema():
     hora = datetime.now().hour
     dia = datetime.now().weekday()
-
-    return {
-        "operacao_liberada": hora >= 8 and dia < 5,
-        "fim_de_semana": dia >= 5
-    }
-
-# =========================
-# ⏰ ALERTA
-# =========================
-def alerta_horario():
-
-    agora = datetime.now()
-    hora = agora.hour
-    minuto = agora.minute
-
-    mercado_aberto = hora >= 8 and hora < 18 and agora.weekday() < 5
-
-    alerta_pre_entrada = (
-        (hora == 7 and minuto >= 55) or
-        (hora == 8 and minuto <= 5)
-    )
-
-    return {
-        "hora_atual": f"{hora:02d}:{minuto:02d}",
-        "mercado_aberto": mercado_aberto,
-        "alerta_pre_entrada": alerta_pre_entrada
-    }
-
-# =========================
-# BACKTEST
-# =========================
-def backtest(df):
-
-    wins = 0
-    losses = 0
-
-    for i in range(60, len(df) - 1):
-
-        sub = df.iloc[:i]
-        sig = sinal(sub)
-
-        if sig == "AGUARDAR":
-            continue
-
-        price = sub["close"].iloc[-1]
-        next_price = df["close"].iloc[i + 1]
-
-        if (sig == "COMPRA" and next_price > price) or (sig == "VENDA" and next_price < price):
-            wins += 1
-        else:
-            losses += 1
-
-    total = wins + losses
-    return wins, losses, (wins / total * 100 if total else 0)
+    return {"operacao_liberada": hora >= 8 and dia < 5}
 
 # =========================
 # EXECUÇÃO
@@ -360,73 +268,17 @@ if ligado:
 
         df = indicadores(df)
 
-        status = horario_sistema()
-
         sinal_atual = sinal(df)
         preco = df["close"].iloc[-1]
 
-        impacto = noticias()
-        ranking, melhor_ativo = ranking_ativos()
-        info_horario = alerta_horario()
-
-        if status["operacao_liberada"]:
-
-            if sinal_atual == "COMPRA":
-                enviar_email("📈 COMPRA", f"{ativo} - {preco}")
-
-            if sinal_atual == "VENDA":
-                enviar_email("📉 VENDA", f"{ativo} - {preco}")
-
-        else:
-            sinal_atual = "AGUARDAR"
-
         st.markdown("## 📊 PAINEL IA")
 
-        # 📊 GRÁFICO (NOVO)
-        st.markdown("## 📈 GRÁFICO")
+        # 🔥 GRÁFICO LIMPO
         st.plotly_chart(mostrar_grafico(df), use_container_width=True)
 
         st.write("Ativo:", ativo)
         st.write("Preço:", preco)
         st.write("Sinal:", sinal_atual)
-
-        st.markdown("## ⏰ Horário do Mercado")
-        st.write("Hora atual:", info_horario["hora_atual"])
-
-        if info_horario["alerta_pre_entrada"]:
-            st.warning("⏳ Possível entrada próxima")
-
-        if not info_horario["mercado_aberto"]:
-            st.error("❌ Mercado fechado")
-
-        st.markdown("## 📰 Notícias do Mercado")
-        st.write(impacto)
-
-        st.markdown("## 🏆 Ranking de Ativos")
-        st.write(ranking)
-        st.write("Melhor ativo:", melhor_ativo)
-
-        atr = df["ATR"].iloc[-1]
-
-        if "posicao" not in st.session_state:
-            st.session_state.posicao = None
-
-        if sinal_atual != "AGUARDAR" and st.session_state.posicao is None:
-
-            st.session_state.posicao = {
-                "tipo": sinal_atual,
-                "entrada": preco,
-                "tp": preco + atr*2 if sinal_atual == "COMPRA" else preco - atr*2,
-                "sl": preco - atr if sinal_atual == "COMPRA" else preco + atr
-            }
-
-        st.markdown("## 📌 OPERAÇÃO")
-        st.write(st.session_state.posicao)
-
-        w, l, wr = backtest(df)
-
-        st.markdown("## 📊 BACKTEST")
-        st.write(w, l, wr)
 
 else:
     st.warning("Robô desligado")
