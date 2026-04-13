@@ -43,7 +43,6 @@ ligado = st.toggle("🔌 Ligar Robô", value=True)
 
 td = TDClient(st.secrets["API_KEY"])
 
-# 🔥 AGORA MULTI-ATIVOS
 ativos = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"]
 
 # =========================
@@ -82,7 +81,7 @@ def pegar_dados(ativo):
         df = td.time_series(
             symbol=ativo,
             interval="15min",
-            outputsize=500
+            outputsize=5000
         ).as_pandas()
 
         df = df[::-1].reset_index(drop=True)
@@ -170,7 +169,7 @@ def score_ia(df):
     return score
 
 # =========================
-# ESTRATÉGIA
+# ESTRATÉGIA (ORIGINAL)
 # =========================
 def tendencia_forte(df):
     closes = df["close"].tail(10)
@@ -224,7 +223,7 @@ def sinal(df):
     return entrada_extra(df)
 
 # =========================
-# HORÁRIO
+# ⏰ HORÁRIO
 # =========================
 def horario_sistema():
     hora = datetime.now().hour
@@ -232,9 +231,9 @@ def horario_sistema():
     return {"operacao_liberada": hora >= 8 and dia < 5}
 
 # =========================
-# BACKTEST (MULTI ATIVOS)
+# 📊 BACKTEST POR ATIVO (NOVO)
 # =========================
-def backtest(df):
+def backtest_por_ativo(df):
 
     wins = 0
     losses = 0
@@ -256,10 +255,12 @@ def backtest(df):
             losses += 1
 
     total = wins + losses
-    return wins, losses, (wins / total * 100 if total else 0)
+    winrate = (wins / total * 100) if total > 0 else 0
+
+    return wins, losses, total, round(winrate, 2)
 
 # =========================
-# EXECUÇÃO
+# 🚀 EXECUÇÃO
 # =========================
 if ligado:
 
@@ -291,20 +292,25 @@ if ligado:
         # EMAIL
         if status["operacao_liberada"]:
             if sig == "COMPRA":
-                enviar_email("COMPRA", f"{ativo} - {preco}")
+                enviar_email("📈 COMPRA", f"{ativo} - {preco}")
             if sig == "VENDA":
-                enviar_email("VENDA", f"{ativo} - {preco}")
+                enviar_email("📉 VENDA", f"{ativo} - {preco}")
 
-        w, l, wr = backtest(df)
+        # BACKTEST INDIVIDUAL
+        w, l, t, wr = backtest_por_ativo(df)
 
-        st.write("Backtest:", w, l, round(wr,2), "%")
+        st.markdown("### 📊 BACKTEST")
+        st.write("Wins:", w)
+        st.write("Losses:", l)
+        st.write("Total:", t)
+        st.write("Winrate:", f"{wr}%")
 
     st.markdown("## 📰 Notícias")
     st.write(noticias())
 
     st.markdown("## 🏆 Ranking")
     st.write(ranking)
-    st.write("Melhor:", melhor)
+    st.write("Melhor ativo:", melhor)
 
 else:
     st.warning("Robô desligado")
