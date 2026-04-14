@@ -10,7 +10,6 @@ from ta.volatility import AverageTrueRange
 from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
-from streamlit_autorefresh import st_autorefresh
 
 # =========================
 # EMAIL
@@ -577,21 +576,22 @@ for ativo in ativos:
 
     if sig == "COMPRA" or sig == "VENDA":
 
-        st.success(f"🔥 ENTRADA DETECTADA")
+        st.success("🔥 ENTRADA DETECTADA")
 
         st.write("📌 Ativo:", ativo)
         st.write("⏰ Horário:", agora)
         st.write("📊 Tipo:", sig)
         st.write("💰 Preço:", preco)
 
-        # 🔔 ALERTA ANTECIPADO
-        enviar_email(
-            f"🚨 ALERTA DE ENTRADA {sig}",
-            f"{ativo}\nTipo: {sig}\nPreço: {preco}\nHorário: {agora}"
-        )
+        # ⚠️ ALERTA CONTROLADO (NÃO SPAM)
+        if st.session_state.get(f"alert_{ativo}") != sig:
+
+            enviar_email(
+                f"🚨 ALERTA DE ENTRADA {sig}",
+                f"{ativo}\nTipo: {sig}\nPreço: {preco}\nHorário: {agora}"
+            )
+
+            st.session_state[f"alert_{ativo}"] = sig
 
     else:
         st.warning("⏳ Aguardando oportunidade...")
-
-# 🔄 AUTO REFRESH (ATUALIZA SOZINHO)
-st_autorefresh(interval=15000, key="refresh")
