@@ -34,7 +34,22 @@ def enviar_email(assunto, mensagem):
     except:
         pass
 
+# =========================
+# 💵 DÓLAR EM TEMPO REAL
+# =========================
+def get_dolar():
+    try:
+        data = td.quote(symbol="USD/BRL").as_json()
 
+        preco = float(data["close"])
+        variacao = float(data["percent_change"])
+        direcao = "🔼" if variacao > 0 else "🔽"
+
+        return preco, variacao, direcao
+
+    except:
+        return None, None, None
+        
 # =========================
 # 📰 NOTÍCIAS ECONÔMICAS (ADICIONADO)
 # =========================
@@ -93,6 +108,16 @@ def get_news_status(news_list):
 # =========================
 st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
 st.title("🤖 ROBÔ FOREX IA v9 - MULTI ATIVOS")
+
+# 💵 DÓLAR NO TOPO
+preco, variacao, direcao = get_dolar()
+
+if preco:
+    st.markdown(
+        f"## 💵 USD/BRL: {preco:.2f} {direcao} ({variacao:.2f}%)"
+    )
+else:
+    st.warning("Erro ao carregar USD/BRL")
 
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
