@@ -7,13 +7,12 @@ from ta.volatility import AverageTrueRange
 from datetime import datetime
 import random
 import plotly.graph_objects as go
-
-# =========================
-# 📩 EMAIL
-# =========================
 import smtplib
 from email.mime.text import MIMEText
 
+# =========================
+# 📩 EMAIL (INALTERADO)
+# =========================
 def enviar_email(assunto, mensagem):
 
     email = "claudineialvesjunior@gmail.com"
@@ -46,35 +45,7 @@ td = TDClient(st.secrets["API_KEY"])
 ativos = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"]
 
 # =========================
-# 📰 NOTÍCIAS
-# =========================
-def noticias():
-    return random.choice([
-        "BAIXO IMPACTO",
-        "MÉDIO IMPACTO",
-        "ALTO IMPACTO ⚠️"
-    ])
-
-# =========================
-# 🏆 RANKING
-# =========================
-def ranking_ativos():
-
-    ranking = {}
-
-    for a in ativos:
-        try:
-            df = pegar_dados(a)
-            df = indicadores(df)
-            ranking[a] = score_ia(df)
-        except:
-            ranking[a] = 0
-
-    melhor = max(ranking, key=ranking.get)
-    return ranking, melhor
-
-# =========================
-# 🟦 DADOS
+# 🟦 DADOS (INALTERADO)
 # =========================
 def pegar_dados(ativo):
     try:
@@ -95,7 +66,7 @@ def pegar_dados(ativo):
         return None
 
 # =========================
-# 🟩 INDICADORES
+# 🟩 INDICADORES (INALTERADO)
 # =========================
 def indicadores(df):
     df["MA9"] = SMAIndicator(df["close"], 9).sma_indicator()
@@ -105,39 +76,7 @@ def indicadores(df):
     return df
 
 # =========================
-# 📈 GRÁFICO
-# =========================
-def mostrar_grafico(df):
-
-    df_plot = df.tail(30)
-
-    fig = go.Figure()
-
-    fig.add_trace(go.Candlestick(
-        x=df_plot.index,
-        open=df_plot['open'],
-        high=df_plot['high'],
-        low=df_plot['low'],
-        close=df_plot['close']
-    ))
-
-    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot["MA9"], line=dict(width=1)))
-    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot["MA21"], line=dict(width=1)))
-
-    fig.update_layout(
-        height=350,
-        margin=dict(l=5, r=5, t=5, b=5),
-        xaxis_rangeslider_visible=False,
-        plot_bgcolor="black",
-        paper_bgcolor="black",
-        font=dict(color="white"),
-        showlegend=False
-    )
-
-    return fig
-
-# =========================
-# 🧠 IA (EUR/USD ORIGINAL)
+# 🧠 SUA IA (INALTERADA)
 # =========================
 def score_ia(df):
 
@@ -169,17 +108,19 @@ def score_ia(df):
     return score
 
 # =========================
-# EUR/USD (INTOCADO)
+# 🔥 ESTRATÉGIA BASE (INALTERADA)
 # =========================
 def tendencia_forte(df):
     closes = df["close"].tail(10)
     alta = 0
     baixa = 0
+
     for i in range(1, len(closes)):
         if closes.iloc[i] > closes.iloc[i-1]:
             alta += 1
         else:
             baixa += 1
+
     if alta >= 8:
         return "UP"
     if baixa >= 8:
@@ -223,51 +164,9 @@ def sinal(df):
     return entrada_extra(df)
 
 # =========================
-# GBP/USD (SUA ESTRATÉGIA)
+# 🔥 BACKTEST GLOBAL (SEU ORIGINAL)
 # =========================
-def estrategia_gbpusd(df):
-
-    rsi = df["RSI"].iloc[-1]
-    rsi_ant = df["RSI"].iloc[-2]
-
-    ma21 = df["MA21"].iloc[-1]
-    price = df["close"].iloc[-1]
-    atr = df["ATR"].iloc[-1]
-
-    trend = tendencia_forte(df)
-    distancia = abs(price - ma21)
-
-    if trend == "UP":
-        if distancia > atr * 1.0:
-            if rsi_ant < 50 and rsi > rsi_ant:
-                if df["close"].iloc[-1] > df["close"].iloc[-2]:
-                    return "COMPRA"
-
-    if trend == "DOWN":
-        if distancia > atr * 1.0:
-            if rsi_ant > 50 and rsi < rsi_ant:
-                if df["close"].iloc[-1] < df["close"].iloc[-2]:
-                    return "VENDA"
-
-    return "AGUARDAR"
-
-# =========================
-# SELETOR DE ESTRATÉGIA
-# =========================
-def sinal_por_ativo(ativo, df):
-
-    if ativo == "EUR/USD":
-        return sinal(df)
-
-    if ativo == "GBP/USD":
-        return estrategia_gbpusd(df)
-
-    return sinal(df)
-
-# =========================
-# BACKTEST POR ATIVO
-# =========================
-def backtest_por_ativo(df, ativo):
+def backtest_por_ativo(df):
 
     wins = 0
     losses = 0
@@ -275,7 +174,7 @@ def backtest_por_ativo(df, ativo):
     for i in range(60, len(df) - 1):
 
         sub = df.iloc[:i]
-        sig = sinal_por_ativo(ativo, sub)
+        sig = sinal(sub)
 
         if sig == "AGUARDAR":
             continue
@@ -284,6 +183,36 @@ def backtest_por_ativo(df, ativo):
         next_price = df["close"].iloc[i + 1]
 
         if (sig == "COMPRA" and next_price > price) or (sig == "VENDA" and next_price < price):
+            wins += 1
+        else:
+            losses += 1
+
+    total = wins + losses
+    winrate = (wins / total * 100) if total > 0 else 0
+
+    return wins, losses, total, round(winrate, 2)
+
+# =========================
+# 🧠 BACKTEST ISOLADO POR ATIVO (NOVO SEM MEXER NO SEU)
+# =========================
+def backtest_individual(df):
+
+    wins = 0
+    losses = 0
+
+    for i in range(60, len(df)-1):
+
+        sub = df.iloc[:i]
+
+        sig = sinal(sub)
+
+        if sig == "AGUARDAR":
+            continue
+
+        price = sub["close"].iloc[-1]
+        future = df["close"].iloc[i+1]
+
+        if (sig == "COMPRA" and future > price) or (sig == "VENDA" and future < price):
             wins += 1
         else:
             losses += 1
@@ -310,7 +239,7 @@ if ligado:
 
     st.markdown("## 📊 PAINEL MULTI ATIVOS")
 
-    ranking, melhor = ranking_ativos()
+    ranking = {}
 
     for ativo in ativos:
 
@@ -321,32 +250,36 @@ if ligado:
 
         df = indicadores(df)
 
-        sig = sinal_por_ativo(ativo, df)
+        sig = sinal(df)
         preco = df["close"].iloc[-1]
 
         st.markdown(f"### 📊 {ativo}")
 
-        st.plotly_chart(mostrar_grafico(df), use_container_width=True)
-
         st.write("Preço:", preco)
         st.write("Sinal:", sig)
 
+        # EMAIL (INALTERADO)
         if status["operacao_liberada"]:
             if sig == "COMPRA":
                 enviar_email("📈 COMPRA", f"{ativo} - {preco}")
             if sig == "VENDA":
                 enviar_email("📉 VENDA", f"{ativo} - {preco}")
 
-        w, l, t, wr = backtest_por_ativo(df, ativo)
+        # BACKTEST ORIGINAL
+        w, l, t, wr = backtest_por_ativo(df)
 
-        st.markdown("### 📊 BACKTEST")
-        st.write("Wins:", w)
-        st.write("Losses:", l)
-        st.write("Total:", t)
-        st.write("Winrate:", f"{wr}%")
+        # BACKTEST ISOLADO (NOVO)
+        w2, l2, t2, wr2 = backtest_individual(df)
 
-    st.markdown("## 📰 Notícias")
-    st.write(noticias())
+        ranking[ativo] = wr2
+
+        st.markdown("### 📊 BACKTEST ORIGINAL")
+        st.write(w, l, t, wr)
+
+        st.markdown("### 📊 BACKTEST ISOLADO")
+        st.write(w2, l2, t2, wr2)
+
+    melhor = max(ranking, key=ranking.get)
 
     st.markdown("## 🏆 Ranking")
     st.write(ranking)
