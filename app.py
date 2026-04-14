@@ -34,24 +34,6 @@ def enviar_email(assunto, mensagem):
     except:
         pass
 
-# =========================
-# 💵 DÓLAR REAL (API BR)
-# =========================
-def get_dolar():
-    try:
-        url = "https://economia.awesomeapi.com.br/json/last/USD-BRL"
-        response = requests.get(url, timeout=5)
-        data = response.json()
-
-        preco = float(data["USDBRL"]["bid"])
-        variacao = float(data["USDBRL"]["pctChange"])
-
-        direcao = "🔼" if variacao > 0 else "🔽"
-
-        return preco, variacao, direcao
-
-    except:
-        return None, None, None
         
 # =========================
 # 📰 NOTÍCIAS ECONÔMICAS (ADICIONADO)
