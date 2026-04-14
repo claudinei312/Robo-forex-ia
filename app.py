@@ -34,16 +34,21 @@ def enviar_email(assunto, mensagem):
     except:
         pass
 
+# =========================
+# 💵 DÓLAR REAL (API BR)
+# =========================
 def get_dolar():
     try:
-        df = td.time_series(
-            symbol="USDBRL",
-            interval="1min",
-            outputsize=1
-        ).as_pandas()
+        url = "https://economia.awesomeapi.com.br/json/last/USD-BRL"
+        response = requests.get(url, timeout=5)
+        data = response.json()
 
-        preco = float(df["close"].iloc[-1])
-        return preco, 0, "💵"
+        preco = float(data["USDBRL"]["bid"])
+        variacao = float(data["USDBRL"]["pctChange"])
+
+        direcao = "🔼" if variacao > 0 else "🔽"
+
+        return preco, variacao, direcao
 
     except:
         return None, None, None
