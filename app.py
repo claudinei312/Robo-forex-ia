@@ -593,4 +593,4 @@ for ativo in ativos:
         st.warning("⏳ Aguardando oportunidade...")
 
 # 🔄 AUTO REFRESH (ATUALIZA SOZINHO)
-st.experimental_rerun()
+st.autorefresh(interval=15000)
