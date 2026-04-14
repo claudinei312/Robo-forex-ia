@@ -574,7 +574,7 @@ for ativo in ativos:
 
     st.markdown(f"### 📍 {ativo}")
 
-    if sig == "COMPRA" or sig == "VENDA":
+    if sig in ["COMPRA", "VENDA", "AGUARDAR"]:
 
         st.success("🔥 ENTRADA DETECTADA")
 
