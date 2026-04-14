@@ -10,11 +10,7 @@ from ta.volatility import AverageTrueRange
 from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
-import requests
-
-# 🔥 FIX: AUTO REFRESH
-from streamlit_autorefresh import st_autorefresh
-st_autorefresh(interval=5000, key="refresh")
+import requests  # 🔥 ADICIONADO (NOTÍCIAS)
 
 # =========================
 # EMAIL
@@ -40,7 +36,7 @@ def enviar_email(assunto, mensagem):
 
 
 # =========================
-# NOTÍCIAS
+# 📰 NOTÍCIAS ECONÔMICAS (ADICIONADO)
 # =========================
 def get_economic_news():
     url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
@@ -50,7 +46,6 @@ def get_economic_news():
         return r.json()
     except:
         return []
-
 
 def filter_news(data, assets):
     news_list = []
@@ -82,7 +77,6 @@ def filter_news(data, assets):
 
     return sorted(news_list, key=lambda x: x["Minutos"])
 
-
 def get_news_status(news_list):
     for n in news_list:
         if n["Impacto"] == "High" and 0 < n["Minutos"] < 60:
@@ -106,11 +100,6 @@ td = TDClient(st.secrets["API_KEY"])
 
 ativos = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"]
 
-# 🔥 FIX SESSION STATE ALERTAS
-if "alerts" not in st.session_state:
-    st.session_state.alerts = {}
-
-
 # =========================
 # DADOS
 # =========================
@@ -119,7 +108,7 @@ def pegar_dados(ativo):
         df = td.time_series(
             symbol=ativo,
             interval="15min",
-            outputsize=500
+            outputsize=5000
         ).as_pandas()
 
         df = df[::-1].reset_index(drop=True)
@@ -127,17 +116,9 @@ def pegar_dados(ativo):
         for c in ["open", "high", "low", "close"]:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-        df = df.dropna()
-
-        if df.empty:
-            return None
-
-        return df
-
-    except Exception as e:
-        st.error(f"Erro API {ativo}: {e}")
+        return df.dropna()
+    except:
         return None
-
 
 # =========================
 # INDICADORES
@@ -148,7 +129,6 @@ def indicadores(df):
     df["RSI"] = RSIIndicator(df["close"], 14).rsi()
     df["ATR"] = AverageTrueRange(df["high"], df["low"], df["close"], 14).average_true_range()
     return df
-
 
 # =========================
 # IA SCORE
@@ -182,9 +162,8 @@ def score_ia(df):
 
     return score
 
-
 # =========================
-# ESTRATÉGIA
+# ESTRATÉGIA BASE
 # =========================
 def tendencia_forte(df):
 
@@ -204,13 +183,11 @@ def tendencia_forte(df):
         return "DOWN"
     return "LATERAL"
 
-
 def filtro_distancia(df):
     price = df["close"].iloc[-1]
     ma21 = df["MA21"].iloc[-1]
     atr = df["ATR"].iloc[-1]
     return abs(price - ma21) <= atr * 1.8
-
 
 def entrada_extra(df):
 
@@ -228,7 +205,6 @@ def entrada_extra(df):
 
     return "AGUARDAR"
 
-
 def sinal(df):
 
     score = score_ia(df)
@@ -245,7 +221,6 @@ def sinal(df):
 
     return entrada_extra(df)
 
-
 # =========================
 # HORÁRIO
 # =========================
@@ -254,6 +229,331 @@ def horario_sistema():
     dia = datetime.now().weekday()
     return {"operacao_liberada": hora >= 8 and dia < 5}
 
+# =========================
+# BACKTEST SIMPLES
+# =========================
+def backtest_simples(df):
+
+    wins = 0
+    losses = 0
+
+    for i in range(60, len(df)-1):
+
+        sub = df.iloc[:i]
+        sig = sinal(sub)
+
+        if sig == "AGUARDAR":
+            continue
+
+        price = sub["close"].iloc[-1]
+        future = df["close"].iloc[i+1]
+
+        if (sig == "COMPRA" and future > price) or (sig == "VENDA" and future < price):
+            wins += 1
+        else:
+            losses += 1
+
+    total = wins + losses
+    wr = (wins / total * 100) if total > 0 else 0
+
+    return wins, losses, total, round(wr, 2)
+
+# =========================
+# GBP COLAB
+# =========================
+def backtest_gbp_colab(df):
+
+    saldo = 1000
+    risco = 0.02
+
+    wins = 0
+    losses = 0
+
+    max_loss_seq = 0
+    loss_seq = 0
+
+    df = df.tail(500)
+
+    for i in range(50, len(df)-20):
+
+        sub = df.iloc[:i]
+        sig = sinal(sub)
+
+        if sig == "AGUARDAR":
+            continue
+
+        entrada = sub["close"].iloc[-1]
+        atr = sub["ATR"].iloc[-1]
+
+        stop = atr * 1.2
+        take = atr * 1.2
+
+        resultado = None
+
+        for j in range(i+1, i+20):
+
+            high = df["high"].iloc[j]
+            low = df["low"].iloc[j]
+
+            if sig == "COMPRA":
+                if low <= entrada - stop:
+                    resultado = -1
+                    break
+                if high >= entrada + take:
+                    resultado = 1
+                    break
+
+            elif sig == "VENDA":
+                if high >= entrada + stop:
+                    resultado = -1
+                    break
+                if low <= entrada - take:
+                    resultado = 1
+                    break
+
+        if resultado is None:
+            continue
+
+        if resultado == 1:
+            saldo += saldo * risco
+            wins += 1
+            loss_seq = 0
+        else:
+            saldo -= saldo * risco
+            losses += 1
+            loss_seq += 1
+            max_loss_seq = max(max_loss_seq, loss_seq)
+
+    total = wins + losses
+    wr = (wins / total * 100) if total > 0 else 0
+
+    return saldo, wr, wins, losses, max_loss_seq
+
+# =========================
+# USDJPY COLAB
+# =========================
+def estrategia_usdjpy(df):
+
+    price = df["close"].iloc[-1]
+    ma21 = df["MA21"].iloc[-1]
+    rsi = df["RSI"].iloc[-1]
+    atr = df["ATR"].iloc[-1]
+
+    high_prev = df["high"].iloc[-2]
+    low_prev = df["low"].iloc[-2]
+
+    distancia = price - ma21
+
+    if distancia > atr * 1.5 and rsi > 65:
+        nivel = high_prev - (high_prev - low_prev) * 0.5
+        if price < nivel:
+            return "VENDA"
+
+    if distancia < -atr * 1.5 and rsi < 35:
+        nivel = low_prev + (high_prev - low_prev) * 0.5
+        if price > nivel:
+            return "COMPRA"
+
+    return "AGUARDAR"
+
+def backtest_usdjpy_colab(df):
+
+    saldo = 1000
+    risco = 0.02
+
+    wins = 0
+    losses = 0
+
+    max_loss_seq = 0
+    loss_seq = 0
+
+    df = df.tail(500)
+
+    for i in range(50, len(df)-20):
+
+        sub = df.iloc[:i]
+        sig = estrategia_usdjpy(sub)
+
+        if sig == "AGUARDAR":
+            continue
+
+        entrada = sub["close"].iloc[-1]
+        atr = sub["ATR"].iloc[-1]
+
+        stop = atr * 1.0
+        take = atr * 1.2
+
+        resultado = None
+
+        for j in range(i+1, i+20):
+
+            high = df["high"].iloc[j]
+            low = df["low"].iloc[j]
+
+            if sig == "COMPRA":
+                if low <= entrada - stop:
+                    resultado = -1
+                    break
+                if high >= entrada + take:
+                    resultado = 1
+                    break
+
+            elif sig == "VENDA":
+                if high >= entrada + stop:
+                    resultado = -1
+                    break
+                if low <= entrada + take:
+                    resultado = 1
+                    break
+
+        if resultado is None:
+            continue
+
+        if resultado == 1:
+            saldo += saldo * risco
+            wins += 1
+            loss_seq = 0
+        else:
+            saldo -= saldo * risco
+            losses += 1
+            loss_seq += 1
+            max_loss_seq = max(max_loss_seq, loss_seq)
+
+    total = wins + losses
+    wr = (wins / total * 100) if total > 0 else 0
+
+    return saldo, wr, wins, losses, max_loss_seq
+
+# =========================
+# AUDUSD COLAB
+# =========================
+def estrategia_audusd(df):
+
+    ma9 = df["MA9"].iloc[-1]
+    ma21 = df["MA21"].iloc[-1]
+    rsi = df["RSI"].iloc[-1]
+    atr = df["ATR"].iloc[-1]
+
+    price = df["close"].iloc[-1]
+
+    high_prev = df["high"].iloc[-2]
+    low_prev = df["low"].iloc[-2]
+
+    ma21_ant = df["MA21"].iloc[-5]
+
+    if abs(ma21 - ma21_ant) < atr * 0.3:
+        return "AGUARDAR"
+
+    tendencia_alta = ma9 > ma21
+    tendencia_baixa = ma9 < ma21
+
+    distancia = abs(price - ma9)
+
+    if tendencia_alta:
+        if 50 < rsi < 65:
+            if distancia < atr * 0.6:
+                if price > high_prev:
+                    return "COMPRA"
+
+    if tendencia_baixa:
+        if 35 < rsi < 50:
+            if distancia < atr * 0.25:
+                if price < low_prev and price < ma21 and price < ma9:
+                    return "VENDA"
+
+    return "AGUARDAR"
+
+def backtest_audusd_colab(df):
+
+    saldo = 1000
+    risco = 0.02
+
+    wins = 0
+    losses = 0
+
+    max_loss_seq = 0
+    loss_seq = 0
+
+    df = df.tail(500)
+
+    cooldown = 6
+
+    for i in range(50, len(df)-20):
+
+        if cooldown > 0:
+            cooldown -= 1
+            continue
+
+        sub = df.iloc[:i]
+        sig = estrategia_audusd(sub)
+
+        if sig == "AGUARDAR":
+            continue
+
+        entrada = sub["close"].iloc[-1]
+        atr = sub["ATR"].iloc[-1]
+
+        stop = atr * 1.2
+        take = atr * 1.4
+
+        resultado = None
+
+        for j in range(i+1, i+20):
+
+            high = df["high"].iloc[j]
+            low = df["low"].iloc[j]
+
+            if sig == "COMPRA":
+                if low <= entrada - stop:
+                    resultado = -1
+                    break
+                if high >= entrada + take:
+                    resultado = 1
+                    break
+
+            elif sig == "VENDA":
+                if high >= entrada + stop:
+                    resultado = -1
+                    break
+                if low <= entrada + take:
+                    resultado = 1
+                    break
+
+        if resultado is None:
+            continue
+
+        cooldown = 6
+
+        if resultado == 1:
+            saldo += saldo * risco * 1.4
+            wins += 1
+            loss_seq = 0
+        else:
+            saldo -= saldo * risco
+            losses += 1
+            loss_seq += 1
+            max_loss_seq = max(max_loss_seq, loss_seq)
+
+    total = wins + losses
+    wr = (wins / total * 100) if total > 0 else 0
+
+    return saldo, wr, wins, losses, max_loss_seq
+
+# =========================
+# CONTROLADOR
+# =========================
+def rodar_backtest(ativo, df):
+
+    if ativo == "GBP/USD":
+        return backtest_gbp_colab(df)
+
+    if ativo == "USD/JPY":
+        return backtest_usdjpy_colab(df)
+
+    if ativo == "AUD/USD":
+        return backtest_audusd_colab(df)
+
+    return backtest_simples(df)
 
 # =========================
 # EXECUÇÃO
@@ -264,7 +564,9 @@ if ligado:
 
     st.markdown("## 📊 PAINEL MULTI ATIVOS")
 
-    # NOTÍCIAS
+    # =========================
+    # 📰 PAINEL DE NOTÍCIAS (ADICIONADO)
+    # =========================
     st.markdown("## 📰 NOTÍCIAS ECONÔMICAS")
 
     assets_news = ["USD", "EUR", "GBP"]
@@ -324,9 +626,8 @@ if ligado:
 else:
     st.warning("Robô desligado")
 
-
 # =========================
-# ENTRADAS EM TEMPO REAL
+# 🚨 PAINEL DE ENTRADAS EM TEMPO REAL (NOVO)
 # =========================
 
 st.markdown("## 🚨 ENTRADAS EM TEMPO REAL")
@@ -346,7 +647,7 @@ for ativo in ativos:
 
     st.markdown(f"### 📍 {ativo}")
 
-    if sig in ["COMPRA", "VENDA"]:
+    if sig == "COMPRA" or sig == "VENDA":
 
         st.success("🔥 ENTRADA DETECTADA")
 
@@ -355,14 +656,14 @@ for ativo in ativos:
         st.write("📊 Tipo:", sig)
         st.write("💰 Preço:", preco)
 
-        if st.session_state.alerts.get(ativo) != sig:
+        if st.session_state.get(f"alert_{ativo}") != sig:
 
             enviar_email(
-                f"🚨 ALERTA {sig}",
-                f"{ativo}\n{sig}\n{preco}\n{agora}"
+                f"🚨 ALERTA DE ENTRADA {sig}",
+                f"{ativo}\nTipo: {sig}\nPreço: {preco}\nHorário: {agora}"
             )
 
-            st.session_state.alerts[ativo] = sig
+            st.session_state[f"alert_{ativo}"] = sig
 
     else:
         st.warning("⏳ Aguardando oportunidade...")
