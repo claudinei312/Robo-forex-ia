@@ -10,6 +10,7 @@ from ta.volatility import AverageTrueRange
 from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
+from streamlit_autorefresh import st_autorefresh
 
 # =========================
 # EMAIL
@@ -593,4 +594,4 @@ for ativo in ativos:
         st.warning("⏳ Aguardando oportunidade...")
 
 # 🔄 AUTO REFRESH (ATUALIZA SOZINHO)
-st.autorefresh(interval=15000)
+st_autorefresh(interval=15000, key="refresh")
