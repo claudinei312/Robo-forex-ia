@@ -11,6 +11,7 @@ from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
 import requests  # 🔥 ADICIONADO (NOTÍCIAS)
+from streamlit_autorefresh import st_autorefresh
 
 # =========================
 # EMAIL
@@ -717,5 +718,4 @@ for ativo in ativos:
 
     else:
         st.warning("⏳ Aguardando oportunidade...")
-
-st.autorefresh(interval=60000, key="refresh")
+        st_autorefresh(interval=60000, key="refresh")
