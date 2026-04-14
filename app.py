@@ -118,8 +118,11 @@ def get_news_status(news_list):
 st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
 st.title("🤖 ROBÔ FOREX IA v9 - MULTI ATIVOS")
 
-ligado = st.toggle("🔌 Ligar Robô", value=True)
+ligado = st.session_state.get("ligado", True)
 
+ligado = st.toggle("🔌 Ligar Robô", value=ligado)
+
+st.session_state["ligado"] = ligado
 td = TDClient(st.secrets["API_KEY"])
 
 ativos = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"]
