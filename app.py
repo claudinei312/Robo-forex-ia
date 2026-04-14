@@ -11,7 +11,6 @@ from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
 import requests  # 🔥 ADICIONADO (NOTÍCIAS)
-from streamlit_autorefresh import st_autorefresh
 
 # =========================
 # EMAIL
@@ -34,38 +33,6 @@ def enviar_email(assunto, mensagem):
         server.quit()
     except:
         pass
-        # =========================
-# 🕒 REGISTRAR LOG A CADA 5 MIN
-# =========================
-def registrar_log(ativo, sinal):
-
-    agora = datetime.now()
-    minuto = agora.minute
-
-    # só executa em minutos exatos de 5 em 5
-    if minuto % 5 != 0:
-        return
-
-    horario = agora.strftime("%H:%M")
-
-    # cria lista do ativo se não existir
-    if ativo not in st.session_state.log_velas:
-        st.session_state.log_velas[ativo] = []
-
-    # evita duplicar mesmo horário
-    if len(st.session_state.log_velas[ativo]) > 0:
-        ultimo = st.session_state.log_velas[ativo][-1]["hora"]
-        if ultimo == horario:
-            return
-
-    # adiciona novo registro
-    st.session_state.log_velas[ativo].append({
-        "hora": horario,
-        "sinal": sinal
-    })
-
-    # mantém apenas últimos 20 registros
-    st.session_state.log_velas[ativo] = st.session_state.log_velas[ativo][-20:]
 
 
 # =========================
@@ -125,12 +92,7 @@ def get_news_status(news_list):
 # CONFIG
 # =========================
 st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
-st.title("🤖 ROBÔ FOREX IA v9 ")
-# =========================
-# 🧠 MEMÓRIA DO LOG
-# =========================
-if "log_velas" not in st.session_state:
-    st.session_state.log_velas = {}
+st.title("🤖 ROBÔ FOREX IA v9 - MULTI ATIVOS")
 
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
@@ -600,7 +562,7 @@ if ligado:
 
     status = horario_sistema()
 
-    st.markdown("================================================== ")
+    st.markdown("## 📊 PAINEL MULTI ATIVOS")
 
     # =========================
     # 📰 PAINEL DE NOTÍCIAS (ADICIONADO)
@@ -632,24 +594,11 @@ if ligado:
         df = indicadores(df)
 
         sig = sinal(df)
-        registrar_log(ativo, sig)
         preco = df["close"].iloc[-1]
 
         st.markdown(f"### 📊 {ativo}")
         st.write("Preço:", preco)
         st.write("Sinal:", sig)
-        # =========================
-# 📊 HISTÓRICO DAS VELAS
-# =========================
-if ativo in st.session_state.log_velas:
-
-    st.write("🕒 Histórico (5min):")
-
-    for item in reversed(st.session_state.log_velas[ativo]):
-        hora = item["hora"]
-        sinal_log = item["sinal"]
-
-        st.write(f"{hora} → {sinal_log}")
 
         if status["operacao_liberada"]:
             if sig == "COMPRA":
@@ -718,4 +667,3 @@ for ativo in ativos:
 
     else:
         st.warning("⏳ Aguardando oportunidade...")
-        st_autorefresh(interval=60000, key="refresh")
