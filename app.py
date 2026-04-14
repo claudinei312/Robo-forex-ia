@@ -11,7 +11,7 @@ import smtplib
 from email.mime.text import MIMEText
 
 # =========================
-# 📩 EMAIL (INALTERADO)
+# 📩 EMAIL
 # =========================
 def enviar_email(assunto, mensagem):
 
@@ -45,7 +45,7 @@ td = TDClient(st.secrets["API_KEY"])
 ativos = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"]
 
 # =========================
-# 🟦 DADOS (INALTERADO)
+# 🟦 DADOS
 # =========================
 def pegar_dados(ativo):
     try:
@@ -66,7 +66,7 @@ def pegar_dados(ativo):
         return None
 
 # =========================
-# 🟩 INDICADORES (INALTERADO)
+# 🟩 INDICADORES
 # =========================
 def indicadores(df):
     df["MA9"] = SMAIndicator(df["close"], 9).sma_indicator()
@@ -76,7 +76,7 @@ def indicadores(df):
     return df
 
 # =========================
-# 🧠 SUA IA (INALTERADA)
+# 🧠 IA
 # =========================
 def score_ia(df):
 
@@ -108,7 +108,7 @@ def score_ia(df):
     return score
 
 # =========================
-# 🔥 ESTRATÉGIA BASE (INALTERADA)
+# 🔥 ESTRATÉGIA
 # =========================
 def tendencia_forte(df):
     closes = df["close"].tail(10)
@@ -164,7 +164,15 @@ def sinal(df):
     return entrada_extra(df)
 
 # =========================
-# 🔥 BACKTEST GLOBAL (SEU ORIGINAL)
+# ⏰ HORÁRIO
+# =========================
+def horario_sistema():
+    hora = datetime.now().hour
+    dia = datetime.now().weekday()
+    return {"operacao_liberada": hora >= 8 and dia < 5}
+
+# =========================
+# 📊 BACKTEST ORIGINAL
 # =========================
 def backtest_por_ativo(df):
 
@@ -193,7 +201,7 @@ def backtest_por_ativo(df):
     return wins, losses, total, round(winrate, 2)
 
 # =========================
-# 🧠 BACKTEST ISOLADO POR ATIVO (NOVO SEM MEXER NO SEU)
+# 📊 BACKTEST ISOLADO
 # =========================
 def backtest_individual(df):
 
@@ -223,12 +231,79 @@ def backtest_individual(df):
     return wins, losses, total, round(winrate, 2)
 
 # =========================
-# ⏰ HORÁRIO
+# 📊 BACKTEST GBP COLAB (ADICIONADO)
 # =========================
-def horario_sistema():
-    hora = datetime.now().hour
-    dia = datetime.now().weekday()
-    return {"operacao_liberada": hora >= 8 and dia < 5}
+def backtest_gbp_colab(df):
+
+    saldo = 1000
+    risco = 0.02
+
+    equity = [saldo]
+
+    wins = 0
+    losses = 0
+
+    max_loss_seq = 0
+    loss_seq = 0
+
+    for i in range(60, len(df)-20):
+
+        sub = df.iloc[:i]
+        sig = sinal(sub)
+
+        if sig == "AGUARDAR":
+            continue
+
+        entrada = sub["close"].iloc[-1]
+        atr = sub["ATR"].iloc[-1]
+
+        stop = atr * 1.2
+        take = atr * 1.2
+
+        resultado = None
+
+        for j in range(i+1, i+20):
+
+            high = df["high"].iloc[j]
+            low = df["low"].iloc[j]
+
+            if sig == "COMPRA":
+                if low <= entrada - stop:
+                    resultado = -1
+                    break
+                if high >= entrada + take:
+                    resultado = 1
+                    break
+
+            elif sig == "VENDA":
+                if high >= entrada + stop:
+                    resultado = -1
+                    break
+                if low <= entrada - take:
+                    resultado = 1
+                    break
+
+        if resultado is None:
+            continue
+
+        if resultado == 1:
+            lucro = saldo * risco
+            saldo += lucro
+            wins += 1
+            loss_seq = 0
+        else:
+            preju = saldo * risco
+            saldo -= preju
+            losses += 1
+            loss_seq += 1
+            max_loss_seq = max(max_loss_seq, loss_seq)
+
+        equity.append(saldo)
+
+    total = wins + losses
+    winrate = (wins / total * 100) if total > 0 else 0
+
+    return saldo, winrate, wins, losses, equity, max_loss_seq
 
 # =========================
 # 🚀 EXECUÇÃO
@@ -254,11 +329,10 @@ if ligado:
         preco = df["close"].iloc[-1]
 
         st.markdown(f"### 📊 {ativo}")
-
         st.write("Preço:", preco)
         st.write("Sinal:", sig)
 
-        # EMAIL (INALTERADO)
+        # EMAIL
         if status["operacao_liberada"]:
             if sig == "COMPRA":
                 enviar_email("📈 COMPRA", f"{ativo} - {preco}")
@@ -268,7 +342,7 @@ if ligado:
         # BACKTEST ORIGINAL
         w, l, t, wr = backtest_por_ativo(df)
 
-        # BACKTEST ISOLADO (NOVO)
+        # BACKTEST ISOLADO
         w2, l2, t2, wr2 = backtest_individual(df)
 
         ranking[ativo] = wr2
@@ -278,6 +352,21 @@ if ligado:
 
         st.markdown("### 📊 BACKTEST ISOLADO")
         st.write(w2, l2, t2, wr2)
+
+        # 🔥 BACKTEST GBP COLAB (SÓ PARA GBP)
+        if ativo == "GBP/USD":
+            saldo, wr3, w3, l3, equity, max_ls = backtest_gbp_colab(df)
+
+            st.markdown("### 📊 BACKTEST GBP (COLAB)")
+            st.write("💰 Saldo:", round(saldo, 2))
+            st.write("📊 Winrate:", wr3)
+            st.write("✅ Wins:", w3)
+            st.write("❌ Losses:", l3)
+            st.write("🔻 Max Loss Streak:", max_ls)
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(y=equity))
+            st.plotly_chart(fig, use_container_width=True)
 
     melhor = max(ranking, key=ranking.get)
 
