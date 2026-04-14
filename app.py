@@ -39,7 +39,7 @@ def enviar_email(assunto, mensagem):
 # =========================
 def get_dolar():
     try:
-        data = td.quote(symbol="USD/BRL").as_json()
+        data = td.quote(symbol="USDBRL").as_json()
 
         preco = float(data["close"])
         variacao = float(data["percent_change"])
