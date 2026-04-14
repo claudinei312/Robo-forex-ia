@@ -11,30 +11,6 @@ from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
 import requests  # 🔥 ADICIONADO (NOTÍCIAS)
-from streamlit_autorefresh import st_autorefresh
-st_autorefresh(interval=60 * 1000, key="refresh")
-
-# ===== LOG SIMPLES 5 MIN =====
-from datetime import datetime
-
-if "logs_ativos" not in st.session_state:
-    st.session_state.logs_ativos = {}
-
-def registrar_log(ativo):
-    agora = datetime.now()
-
-    # só a cada 5 minutos
-    if agora.minute % 5 == 0:
-        horario = agora.strftime("%H:%M")
-
-        if ativo not in st.session_state.logs_ativos:
-            st.session_state.logs_ativos[ativo] = []
-
-        # evita duplicar
-        if not st.session_state.logs_ativos[ativo] or \
-           st.session_state.logs_ativos[ativo][-1] != f"{horario} aguardando":
-
-            st.session_state.logs_ativos[ativo].append(f"{horario} aguardando")
 
 # =========================
 # EMAIL
@@ -118,11 +94,8 @@ def get_news_status(news_list):
 st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
 st.title("🤖 ROBÔ FOREX IA v9 - MULTI ATIVOS")
 
-ligado = st.session_state.get("ligado", True)
+ligado = st.toggle("🔌 Ligar Robô", value=True)
 
-ligado = st.toggle("🔌 Ligar Robô", value=ligado)
-
-st.session_state["ligado"] = ligado
 td = TDClient(st.secrets["API_KEY"])
 
 ativos = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"]
@@ -614,7 +587,6 @@ if ligado:
     for ativo in ativos:
 
         df = pegar_dados(ativo)
-        registrar_log(ativo)
 
         if df is None:
             continue
@@ -627,11 +599,6 @@ if ligado:
         st.markdown(f"### 📊 {ativo}")
         st.write("Preço:", preco)
         st.write("Sinal:", sig)
-        st.markdown("#### ⏱️ Histórico")
-
-if ativo in st.session_state.logs_ativos:
-    for log in st.session_state.logs_ativos[ativo][-10:]:
-        st.text(log)
 
         if status["operacao_liberada"]:
             if sig == "COMPRA":
