@@ -562,7 +562,7 @@ if ligado:
 
     status = horario_sistema()
 
-    st.markdown("##=============== ")
+    st.markdown("================================== ")
 
     # =========================
     # 📰 PAINEL DE NOTÍCIAS (ADICIONADO)
