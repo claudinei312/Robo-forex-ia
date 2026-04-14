@@ -12,7 +12,7 @@ import smtplib
 from email.mime.text import MIMEText
 
 # =========================
-# 📩 EMAIL
+# EMAIL
 # =========================
 def enviar_email(assunto, mensagem):
 
@@ -62,7 +62,6 @@ def pegar_dados(ativo):
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
         return df.dropna()
-
     except:
         return None
 
@@ -371,7 +370,7 @@ def backtest_usdjpy_colab(df):
     return saldo, wr, wins, losses, max_loss_seq
 
 # =========================
-# 🟢 AUD/USD COLAB (NOVO ADICIONADO)
+# AUDUSD COLAB
 # =========================
 def estrategia_audusd(df):
 
@@ -426,6 +425,10 @@ def backtest_audusd_colab(df):
 
     for i in range(50, len(df)-20):
 
+        if cooldown > 0:
+            cooldown -= 1
+            continue
+
         sub = df.iloc[:i]
         sig = estrategia_audusd(sub)
 
@@ -463,6 +466,8 @@ def backtest_audusd_colab(df):
 
         if resultado is None:
             continue
+
+        cooldown = 6
 
         if resultado == 1:
             saldo += saldo * risco * 1.4
@@ -530,29 +535,14 @@ if ligado:
 
         result = rodar_backtest(ativo, df)
 
-        if ativo == "GBP/USD":
+        # 🔥 PADRÃO ÚNICO PARA TODOS
+        if ativo in ["GBP/USD", "USD/JPY", "AUD/USD"]:
             saldo, wr, w, l, max_ls = result
-            st.write("💰 Saldo:", round(saldo, 2))
-            st.write("📊 Winrate:", wr)
-            st.write("🔻 Loss streak:", max_ls)
+            st.write(f"Wins: {w}  Losses: {l}  Winrate: {round(wr,1)}")
             ranking[ativo] = wr
-
-        elif ativo == "USD/JPY":
-            saldo, wr, w, l, max_ls = result
-            st.write("💰 Saldo:", round(saldo, 2))
-            st.write("📊 Winrate:", wr)
-            ranking[ativo] = wr
-
-        elif ativo == "AUD/USD":
-            saldo, wr, w, l, max_ls = result
-            st.write("💰 Saldo:", round(saldo, 2))
-            st.write("📊 Winrate:", wr)
-            st.write("🔻 Loss streak:", max_ls)
-            ranking[ativo] = wr
-
         else:
             w, l, t, wr = result
-            st.write("Wins:", w, "Losses:", l, "Winrate:", wr)
+            st.write(f"Wins: {w}  Losses: {l}  Winrate: {round(wr,1)}")
             ranking[ativo] = wr
 
     melhor = max(ranking, key=ranking.get)
