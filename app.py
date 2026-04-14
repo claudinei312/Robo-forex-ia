@@ -94,21 +94,6 @@ def get_news_status(news_list):
 st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
 st.title("🤖 ROBÔ FOREX IA v9 - MULTI ATIVOS")
 
-# 💵 DÓLAR NO TOPO
-preco, variacao, direcao = get_dolar()
-
-if preco:
-    st.markdown(
-        f"## 💵 USD/BRL: {preco:.2f} {direcao} ({variacao:.2f}%)"
-    )
-else:
-    st.warning("Erro ao carregar USD/BRL")
-
-ligado = st.toggle("🔌 Ligar Robô", value=True)
-
-td = TDClient(st.secrets["API_KEY"])
-
-ativos = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"]
 
 # =========================
 # DADOS
