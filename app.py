@@ -5,7 +5,6 @@ from ta.trend import SMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
 from datetime import datetime
-import plotly.graph_objects as go
 import smtplib
 from email.mime.text import MIMEText
 
@@ -107,7 +106,7 @@ def score_ia(df):
     return score
 
 # =========================
-# 🔥 ESTRATÉGIA
+# 🔥 ESTRATÉGIA BASE
 # =========================
 def tendencia_forte(df):
     closes = df["close"].tail(10)
@@ -200,14 +199,12 @@ def backtest_simples(df):
     return wins, losses, total, round(wr, 2)
 
 # =========================
-# 📊 BACKTEST GBP COLAB
+# 📊 GBP COLAB (SEM GRÁFICO)
 # =========================
 def backtest_gbp_colab(df):
 
     saldo = 1000
     risco = 0.02
-
-    equity = [saldo]
 
     wins = 0
     losses = 0
@@ -215,7 +212,9 @@ def backtest_gbp_colab(df):
     max_loss_seq = 0
     loss_seq = 0
 
-    for i in range(60, len(df)-20):
+    df = df.tail(500)
+
+    for i in range(50, len(df)-20):
 
         sub = df.iloc[:i]
         sig = sinal(sub)
@@ -265,20 +264,116 @@ def backtest_gbp_colab(df):
             loss_seq += 1
             max_loss_seq = max(max_loss_seq, loss_seq)
 
-        equity.append(saldo)
+    total = wins + losses
+    wr = (wins / total * 100) if total > 0 else 0
+
+    return saldo, wr, wins, losses, max_loss_seq
+
+# =========================
+# 📊 USDJPY COLAB (NOVO)
+# =========================
+def estrategia_usdjpy(df):
+
+    price = df["close"].iloc[-1]
+    ma21 = df["MA21"].iloc[-1]
+    rsi = df["RSI"].iloc[-1]
+    atr = df["ATR"].iloc[-1]
+
+    high_prev = df["high"].iloc[-2]
+    low_prev = df["low"].iloc[-2]
+
+    distancia = price - ma21
+
+    if distancia > atr * 1.5 and rsi > 65:
+        nivel = high_prev - (high_prev - low_prev) * 0.5
+        if price < nivel:
+            return "VENDA"
+
+    if distancia < -atr * 1.5 and rsi < 35:
+        nivel = low_prev + (high_prev - low_prev) * 0.5
+        if price > nivel:
+            return "COMPRA"
+
+    return "AGUARDAR"
+
+def backtest_usdjpy_colab(df):
+
+    saldo = 1000
+    risco = 0.02
+
+    wins = 0
+    losses = 0
+
+    max_loss_seq = 0
+    loss_seq = 0
+
+    df = df.tail(500)
+
+    for i in range(50, len(df)-20):
+
+        sub = df.iloc[:i]
+        sig = estrategia_usdjpy(sub)
+
+        if sig == "AGUARDAR":
+            continue
+
+        entrada = sub["close"].iloc[-1]
+        atr = sub["ATR"].iloc[-1]
+
+        stop = atr * 1.0
+        take = atr * 1.2
+
+        resultado = None
+
+        for j in range(i+1, i+20):
+
+            high = df["high"].iloc[j]
+            low = df["low"].iloc[j]
+
+            if sig == "COMPRA":
+                if low <= entrada - stop:
+                    resultado = -1
+                    break
+                if high >= entrada + take:
+                    resultado = 1
+                    break
+
+            elif sig == "VENDA":
+                if high >= entrada + stop:
+                    resultado = -1
+                    break
+                if low <= entrada - take:
+                    resultado = 1
+                    break
+
+        if resultado is None:
+            continue
+
+        if resultado == 1:
+            saldo += saldo * risco
+            wins += 1
+            loss_seq = 0
+        else:
+            saldo -= saldo * risco
+            losses += 1
+            loss_seq += 1
+            max_loss_seq = max(max_loss_seq, loss_seq)
 
     total = wins + losses
     wr = (wins / total * 100) if total > 0 else 0
 
-    return saldo, wr, wins, losses, equity, max_loss_seq
+    return saldo, wr, wins, losses, max_loss_seq
 
 # =========================
-# 🚀 CONTROLADOR ÚNICO
+# 🚀 CONTROLADOR
 # =========================
 def rodar_backtest(ativo, df):
 
     if ativo == "GBP/USD":
         return backtest_gbp_colab(df)
+
+    if ativo == "USD/JPY":
+        return backtest_usdjpy_colab(df)
 
     return backtest_simples(df)
 
@@ -309,38 +404,30 @@ if ligado:
         st.write("Preço:", preco)
         st.write("Sinal:", sig)
 
-        # EMAIL
         if status["operacao_liberada"]:
             if sig == "COMPRA":
                 enviar_email("📈 COMPRA", f"{ativo} - {preco}")
             if sig == "VENDA":
                 enviar_email("📉 VENDA", f"{ativo} - {preco}")
 
-        # 🔥 1 BACKTEST POR ATIVO (AGORA CORRETO)
         result = rodar_backtest(ativo, df)
 
         if ativo == "GBP/USD":
-            saldo, wr, w, l, equity, max_ls = result
-
-            st.markdown("### 📊 BACKTEST GBP (COLAB)")
+            saldo, wr, w, l, max_ls = result
             st.write("💰 Saldo:", round(saldo, 2))
             st.write("📊 Winrate:", wr)
-            st.write("✅ Wins:", w)
-            st.write("❌ Losses:", l)
-            st.write("🔻 Max Loss Streak:", max_ls)
+            st.write("🔻 Loss streak:", max_ls)
+            ranking[ativo] = wr
 
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(y=equity))
-            st.plotly_chart(fig, use_container_width=True)
-
+        elif ativo == "USD/JPY":
+            saldo, wr, w, l, max_ls = result
+            st.write("💰 Saldo:", round(saldo, 2))
+            st.write("📊 Winrate:", wr)
             ranking[ativo] = wr
 
         else:
             w, l, t, wr = result
-
-            st.markdown("### 📊 BACKTEST")
-            st.write(w, l, t, wr)
-
+            st.write("Wins:", w, "Losses:", l, "Winrate:", wr)
             ranking[ativo] = wr
 
     melhor = max(ranking, key=ranking.get)
