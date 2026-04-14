@@ -92,7 +92,7 @@ def get_news_status(news_list):
 # CONFIG
 # =========================
 st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
-st.title("🤖 ROBÔ FOREX IA v9 - MULTI ATIVOS")
+st.title("🤖 ROBÔ FOREX IA v9 ")
 
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
