@@ -4,3 +4,4 @@ twelvedata
 ta
 plotly
 streamlit-autorefresh
+streamlit-autorefresh
