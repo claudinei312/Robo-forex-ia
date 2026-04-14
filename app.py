@@ -545,7 +545,7 @@ if ligado:
             st.write(f"Wins: {w}  Losses: {l}  Winrate: {round(wr,1)}")
             ranking[ativo] = wr
 
-    melhor = max(ranking, key=ranking.get)
+    melhor = max(ranking, key=ranking.get) if ranking else "Nenhum ativo"
 
     st.markdown("## 🏆 Ranking")
     st.write(ranking)
