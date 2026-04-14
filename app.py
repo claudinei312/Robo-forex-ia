@@ -6,36 +6,11 @@ from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
 from datetime import datetime
 import random
-import plotly.graph_objects as go
-
-# =========================
-# EMAIL
-# =========================
-import smtplib
-from email.mime.text import MIMEText
-
-def enviar_email(assunto, mensagem):
-    email = "claudineialvesjunior@gmail.com"
-    senha = "dvuw lmde sfse tyax"
-
-    msg = MIMEText(mensagem)
-    msg["Subject"] = assunto
-    msg["From"] = email
-    msg["To"] = email
-
-    try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(email, senha)
-        server.sendmail(email, email, msg.as_string())
-        server.quit()
-    except:
-        pass
 
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="🤖 Robô IA PRO", layout="centered")
+st.set_page_config(page_title="🤖 Robô Forex IA", layout="centered")
 st.title("🤖 ROBÔ FOREX IA - MULTI ESTRATÉGIAS")
 
 ligado = st.toggle("🔌 Ligar Robô", value=True)
@@ -47,21 +22,18 @@ ativos = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"]
 # DADOS
 # =========================
 def pegar_dados(ativo):
-    try:
-        df = td.time_series(
-            symbol=ativo,
-            interval="15min",
-            outputsize=5000
-        ).as_pandas()
+    df = td.time_series(
+        symbol=ativo,
+        interval="15min",
+        outputsize=5000
+    ).as_pandas()
 
-        df = df[::-1].reset_index(drop=True)
+    df = df[::-1].reset_index(drop=True)
 
-        for c in ["open","high","low","close"]:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
+    for c in ["open","high","low","close"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
 
-        return df.dropna()
-    except:
-        return None
+    return df.dropna()
 
 # =========================
 # INDICADORES
@@ -74,7 +46,7 @@ def indicadores(df):
     return df
 
 # =========================
-# EUR/USD (ORIGINAL)
+# ========= EUR/USD (SEU ORIGINAL) =========
 # =========================
 def tendencia_forte(df):
     closes = df["close"].tail(10)
@@ -117,6 +89,12 @@ def score_ia(df):
     else:
         score -= 1
 
+    atr = df["ATR"].iloc[-1]
+    if atr > df["ATR"].rolling(50).mean().iloc[-1]:
+        score += 1
+    else:
+        score -= 1
+
     return score
 
 def entrada_extra(df):
@@ -126,15 +104,15 @@ def entrada_extra(df):
     score = score_ia(df)
     trend = tendencia_forte(df)
 
-    if trend == "UP" and score >= 2 and abs(price-ma21)<atr*0.9:
+    if trend == "UP" and score >= 2 and abs(price-ma21)<atr*0.9 and df["close"].iloc[-1] > df["close"].iloc[-2]:
         return "COMPRA"
 
-    if trend == "DOWN" and score <= -2 and abs(price-ma21)<atr*0.9:
+    if trend == "DOWN" and score <= -2 and abs(price-ma21)<atr*0.9 and df["close"].iloc[-1] < df["close"].iloc[-2]:
         return "VENDA"
 
     return "AGUARDAR"
 
-def sinal(df):
+def sinal_eurusd(df):
     score = score_ia(df)
     trend = tendencia_forte(df)
 
@@ -150,11 +128,13 @@ def sinal(df):
     return entrada_extra(df)
 
 # =========================
-# GBP/USD
+# ========= GBP/USD =========
 # =========================
 def estrategia_gbpusd(df):
+
     rsi = df["RSI"].iloc[-1]
     rsi_ant = df["RSI"].iloc[-2]
+
     ma21 = df["MA21"].iloc[-1]
     price = df["close"].iloc[-1]
     atr = df["ATR"].iloc[-1]
@@ -162,20 +142,25 @@ def estrategia_gbpusd(df):
     trend = tendencia_forte(df)
     distancia = abs(price - ma21)
 
-    if trend == "UP" and distancia > atr:
-        if rsi_ant < 50 and rsi > rsi_ant:
-            return "COMPRA"
+    if trend == "UP":
+        if distancia > atr * 1.0:
+            if rsi_ant < 50 and rsi > rsi_ant:
+                if price > df["close"].iloc[-2]:
+                    return "COMPRA"
 
-    if trend == "DOWN" and distancia > atr:
-        if rsi_ant > 50 and rsi < rsi_ant:
-            return "VENDA"
+    if trend == "DOWN":
+        if distancia > atr * 1.0:
+            if rsi_ant > 50 and rsi < rsi_ant:
+                if price < df["close"].iloc[-2]:
+                    return "VENDA"
 
     return "AGUARDAR"
 
 # =========================
-# USD/JPY
+# ========= USD/JPY =========
 # =========================
 def estrategia_usdjpy(df):
+
     price = df["close"].iloc[-1]
     ma21 = df["MA21"].iloc[-1]
     rsi = df["RSI"].iloc[-1]
@@ -186,22 +171,25 @@ def estrategia_usdjpy(df):
 
     distancia = price - ma21
 
-    if distancia > atr * 1.5 and rsi > 65:
-        nivel = high_prev - (high_prev - low_prev) * 0.5
-        if price < nivel:
-            return "VENDA"
+    if distancia > atr * 1.5:
+        if rsi > 65:
+            nivel = high_prev - (high_prev - low_prev) * 0.5
+            if price < nivel:
+                return "VENDA"
 
-    if distancia < -atr * 1.5 and rsi < 35:
-        nivel = low_prev + (high_prev - low_prev) * 0.5
-        if price > nivel:
-            return "COMPRA"
+    if distancia < -atr * 1.5:
+        if rsi < 35:
+            nivel = low_prev + (high_prev - low_prev) * 0.5
+            if price > nivel:
+                return "COMPRA"
 
     return "AGUARDAR"
 
 # =========================
-# AUD/USD
+# ========= AUD/USD =========
 # =========================
 def estrategia_audusd(df):
+
     ma9 = df["MA9"].iloc[-1]
     ma21 = df["MA21"].iloc[-1]
     rsi = df["RSI"].iloc[-1]
@@ -211,34 +199,27 @@ def estrategia_audusd(df):
     high_prev = df["high"].iloc[-2]
     low_prev = df["low"].iloc[-2]
 
-    if ma9 > ma21 and 50 < rsi < 65:
-        if abs(price - ma9) < atr * 0.3:
-            if price > high_prev:
-                return "COMPRA"
+    tendencia_alta = ma9 > ma21
+    tendencia_baixa = ma9 < ma21
 
-    if ma9 < ma21 and 35 < rsi < 50:
-        if abs(price - ma9) < atr * 0.3:
-            if price < low_prev:
-                return "VENDA"
+    distancia = abs(price - ma9)
+
+    if tendencia_alta:
+        if 50 < rsi < 65:
+            if distancia < atr * 0.3:
+                if price > high_prev:
+                    return "COMPRA"
+
+    if tendencia_baixa:
+        if 35 < rsi < 50:
+            if distancia < atr * 0.3:
+                if price < low_prev:
+                    return "VENDA"
 
     return "AGUARDAR"
 
 # =========================
-# SELETOR
-# =========================
-def sinal_por_ativo(ativo, df):
-    if ativo == "EUR/USD":
-        return sinal(df)
-    elif ativo == "GBP/USD":
-        return estrategia_gbpusd(df)
-    elif ativo == "USD/JPY":
-        return estrategia_usdjpy(df)
-    elif ativo == "AUD/USD":
-        return estrategia_audusd(df)
-    return "AGUARDAR"
-
-# =========================
-# BACKTEST REAL
+# BACKTEST (REAL POR ATIVO)
 # =========================
 def backtest_por_ativo(df, ativo):
 
@@ -251,7 +232,25 @@ def backtest_por_ativo(df, ativo):
     for i in range(50, len(df)-20):
 
         sub = df.iloc[:i]
-        sig = sinal_por_ativo(ativo, sub)
+
+        if ativo == "EUR/USD":
+            sig = sinal_eurusd(sub)
+            stop_mult, take_mult = 1.2, 1.5
+
+        elif ativo == "GBP/USD":
+            sig = estrategia_gbpusd(sub)
+            stop_mult, take_mult = 1.2, 1.2
+
+        elif ativo == "USD/JPY":
+            sig = estrategia_usdjpy(sub)
+            stop_mult, take_mult = 1.0, 1.2
+
+        elif ativo == "AUD/USD":
+            sig = estrategia_audusd(sub)
+            stop_mult, take_mult = 1.2, 1.5
+
+        else:
+            continue
 
         if sig == "AGUARDAR":
             continue
@@ -259,8 +258,8 @@ def backtest_por_ativo(df, ativo):
         entrada = sub["close"].iloc[-1]
         atr = sub["ATR"].iloc[-1]
 
-        stop = atr * 1.2
-        take = atr * 1.5
+        stop = atr * stop_mult
+        take = atr * take_mult
 
         resultado = None
 
@@ -289,7 +288,7 @@ def backtest_por_ativo(df, ativo):
             continue
 
         if resultado == 1:
-            saldo += saldo * risco * 1.5
+            saldo += saldo * risco
             wins += 1
         else:
             saldo -= saldo * risco
@@ -308,12 +307,17 @@ if ligado:
     for ativo in ativos:
 
         df = pegar_dados(ativo)
-        if df is None:
-            continue
-
         df = indicadores(df)
 
-        sig = sinal_por_ativo(ativo, df)
+        if ativo == "EUR/USD":
+            sig = sinal_eurusd(df)
+        elif ativo == "GBP/USD":
+            sig = estrategia_gbpusd(df)
+        elif ativo == "USD/JPY":
+            sig = estrategia_usdjpy(df)
+        elif ativo == "AUD/USD":
+            sig = estrategia_audusd(df)
+
         preco = df["close"].iloc[-1]
 
         saldo, wr, w, l = backtest_por_ativo(df, ativo)
