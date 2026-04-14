@@ -38,6 +38,7 @@ def enviar_email(assunto, mensagem):
 # =========================
 st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
 st.title("🤖 ROBÔ FOREX IA v9 - MULTI ATIVOS")
+
 from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=15000, key="refresh")
 
