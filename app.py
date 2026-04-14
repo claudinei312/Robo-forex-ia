@@ -34,18 +34,16 @@ def enviar_email(assunto, mensagem):
     except:
         pass
 
-# =========================
-# 💵 DÓLAR EM TEMPO REAL (CORRIGIDO)
-# =========================
 def get_dolar():
     try:
-        data = td.quote(symbol="USDBRL").as_json()
+        df = td.time_series(
+            symbol="USDBRL",
+            interval="1min",
+            outputsize=1
+        ).as_pandas()
 
-        preco = float(data["close"])
-        variacao = float(data["percent_change"])
-        direcao = "🔼" if variacao > 0 else "🔽"
-
-        return preco, variacao, direcao
+        preco = float(df["close"].iloc[-1])
+        return preco, 0, "💵"
 
     except:
         return None, None, None
