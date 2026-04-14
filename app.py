@@ -553,3 +553,44 @@ if ligado:
 
 else:
     st.warning("Robô desligado")
+    # =========================
+# 🚨 PAINEL DE ENTRADAS EM TEMPO REAL (NOVO)
+# =========================
+
+st.markdown("## 🚨 ENTRADAS EM TEMPO REAL")
+
+for ativo in ativos:
+
+    df = pegar_dados(ativo)
+
+    if df is None:
+        continue
+
+    df = indicadores(df)
+
+    sig = sinal(df)
+    preco = df["close"].iloc[-1]
+    agora = datetime.now().strftime("%H:%M:%S")
+
+    st.markdown(f"### 📍 {ativo}")
+
+    if sig == "COMPRA" or sig == "VENDA":
+
+        st.success(f"🔥 ENTRADA DETECTADA")
+
+        st.write("📌 Ativo:", ativo)
+        st.write("⏰ Horário:", agora)
+        st.write("📊 Tipo:", sig)
+        st.write("💰 Preço:", preco)
+
+        # 🔔 ALERTA ANTECIPADO
+        enviar_email(
+            f"🚨 ALERTA DE ENTRADA {sig}",
+            f"{ativo}\nTipo: {sig}\nPreço: {preco}\nHorário: {agora}"
+        )
+
+    else:
+        st.warning("⏳ Aguardando oportunidade...")
+
+# 🔄 AUTO REFRESH (ATUALIZA SOZINHO)
+st.experimental_rerun()
