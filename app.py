@@ -9,7 +9,7 @@ import random
 import plotly.graph_objects as go
 
 # =========================
-# EMAIL (MANTIDO)
+# EMAIL
 # =========================
 import smtplib
 from email.mime.text import MIMEText
@@ -35,7 +35,7 @@ def enviar_email(assunto, mensagem):
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="🤖 Robô IA v10 PRO", layout="centered")
+st.set_page_config(page_title="🤖 Robô IA PRO", layout="centered")
 st.title("🤖 ROBÔ FOREX IA - MULTI ESTRATÉGIAS")
 
 ligado = st.toggle("🔌 Ligar Robô", value=True)
@@ -44,7 +44,7 @@ td = TDClient(st.secrets["API_KEY"])
 ativos = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"]
 
 # =========================
-# DADOS (MANTIDO)
+# DADOS
 # =========================
 def pegar_dados(ativo):
     try:
@@ -56,7 +56,7 @@ def pegar_dados(ativo):
 
         df = df[::-1].reset_index(drop=True)
 
-        for c in ["open", "high", "low", "close"]:
+        for c in ["open","high","low","close"]:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
         return df.dropna()
@@ -64,7 +64,7 @@ def pegar_dados(ativo):
         return None
 
 # =========================
-# INDICADORES (MANTIDO)
+# INDICADORES
 # =========================
 def indicadores(df):
     df["MA9"] = SMAIndicator(df["close"], 9).sma_indicator()
@@ -74,39 +74,7 @@ def indicadores(df):
     return df
 
 # =========================
-# IA (MANTIDO)
-# =========================
-def score_ia(df):
-
-    score = 0
-
-    if df["MA9"].iloc[-1] > df["MA21"].iloc[-1]:
-        score += 1
-    else:
-        score -= 1
-
-    rsi = df["RSI"].iloc[-1]
-    if rsi > 55:
-        score += 1
-    elif rsi < 45:
-        score -= 1
-
-    m = MACD(df["close"])
-    if m.macd().iloc[-1] > m.macd_signal().iloc[-1]:
-        score += 1
-    else:
-        score -= 1
-
-    atr = df["ATR"].iloc[-1]
-    if atr > df["ATR"].rolling(50).mean().iloc[-1]:
-        score += 1
-    else:
-        score -= 1
-
-    return score
-
-# =========================
-# EUR/USD ORIGINAL (INTACTO)
+# EUR/USD (ORIGINAL)
 # =========================
 def tendencia_forte(df):
     closes = df["close"].tail(10)
@@ -129,6 +97,28 @@ def filtro_distancia(df):
     atr = df["ATR"].iloc[-1]
     return abs(price - ma21) <= atr * 1.8
 
+def score_ia(df):
+    score = 0
+
+    if df["MA9"].iloc[-1] > df["MA21"].iloc[-1]:
+        score += 1
+    else:
+        score -= 1
+
+    rsi = df["RSI"].iloc[-1]
+    if rsi > 55:
+        score += 1
+    elif rsi < 45:
+        score -= 1
+
+    m = MACD(df["close"])
+    if m.macd().iloc[-1] > m.macd_signal().iloc[-1]:
+        score += 1
+    else:
+        score -= 1
+
+    return score
+
 def entrada_extra(df):
     price = df["close"].iloc[-1]
     ma21 = df["MA21"].iloc[-1]
@@ -136,10 +126,10 @@ def entrada_extra(df):
     score = score_ia(df)
     trend = tendencia_forte(df)
 
-    if trend == "UP" and score >= 2 and abs(price-ma21)<atr*0.9 and df["close"].iloc[-1] > df["close"].iloc[-2]:
+    if trend == "UP" and score >= 2 and abs(price-ma21)<atr*0.9:
         return "COMPRA"
 
-    if trend == "DOWN" and score <= -2 and abs(price-ma21)<atr*0.9 and df["close"].iloc[-1] < df["close"].iloc[-2]:
+    if trend == "DOWN" and score <= -2 and abs(price-ma21)<atr*0.9:
         return "VENDA"
 
     return "AGUARDAR"
@@ -234,33 +224,31 @@ def estrategia_audusd(df):
     return "AGUARDAR"
 
 # =========================
-# SELETOR (SEM QUEBRAR EURUSD)
+# SELETOR
 # =========================
 def sinal_por_ativo(ativo, df):
-
     if ativo == "EUR/USD":
-        return sinal(df)  # ORIGINAL
-
+        return sinal(df)
     elif ativo == "GBP/USD":
         return estrategia_gbpusd(df)
-
     elif ativo == "USD/JPY":
         return estrategia_usdjpy(df)
-
     elif ativo == "AUD/USD":
         return estrategia_audusd(df)
-
     return "AGUARDAR"
 
 # =========================
-# BACKTEST
+# BACKTEST REAL
 # =========================
 def backtest_por_ativo(df, ativo):
+
+    saldo = 1000
+    risco = 0.02
 
     wins = 0
     losses = 0
 
-    for i in range(60, len(df)-1):
+    for i in range(50, len(df)-20):
 
         sub = df.iloc[:i]
         sig = sinal_por_ativo(ativo, sub)
@@ -268,18 +256,49 @@ def backtest_por_ativo(df, ativo):
         if sig == "AGUARDAR":
             continue
 
-        price = sub["close"].iloc[-1]
-        next_price = df["close"].iloc[i+1]
+        entrada = sub["close"].iloc[-1]
+        atr = sub["ATR"].iloc[-1]
 
-        if (sig == "COMPRA" and next_price > price) or (sig == "VENDA" and next_price < price):
+        stop = atr * 1.2
+        take = atr * 1.5
+
+        resultado = None
+
+        for j in range(i+1, i+20):
+
+            high = df["high"].iloc[j]
+            low = df["low"].iloc[j]
+
+            if sig == "COMPRA":
+                if low <= entrada - stop:
+                    resultado = -1
+                    break
+                if high >= entrada + take:
+                    resultado = 1
+                    break
+
+            if sig == "VENDA":
+                if high >= entrada + stop:
+                    resultado = -1
+                    break
+                if low <= entrada - take:
+                    resultado = 1
+                    break
+
+        if resultado is None:
+            continue
+
+        if resultado == 1:
+            saldo += saldo * risco * 1.5
             wins += 1
         else:
+            saldo -= saldo * risco
             losses += 1
 
     total = wins + losses
-    winrate = (wins/total*100) if total>0 else 0
+    winrate = (wins / total * 100) if total > 0 else 0
 
-    return wins, losses, total, round(winrate,2)
+    return saldo, winrate, wins, losses
 
 # =========================
 # EXECUÇÃO
@@ -297,15 +316,15 @@ if ligado:
         sig = sinal_por_ativo(ativo, df)
         preco = df["close"].iloc[-1]
 
+        saldo, wr, w, l = backtest_por_ativo(df, ativo)
+
         st.markdown(f"### 📊 {ativo}")
         st.write("Preço:", preco)
         st.write("Sinal:", sig)
-
-        w,l,t,wr = backtest_por_ativo(df, ativo)
-
+        st.write("Saldo:", round(saldo,2))
         st.write("Wins:", w)
         st.write("Losses:", l)
-        st.write("Winrate:", wr,"%")
+        st.write("Winrate:", round(wr,2), "%")
 
 else:
     st.warning("Robô desligado")
