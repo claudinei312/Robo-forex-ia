@@ -35,7 +35,7 @@ def enviar_email(assunto, mensagem):
         pass
 
 # =========================
-# 💵 DÓLAR EM TEMPO REAL
+# 💵 DÓLAR EM TEMPO REAL (CORRIGIDO)
 # =========================
 def get_dolar():
     try:
