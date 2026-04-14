@@ -5,7 +5,6 @@ from ta.trend import SMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
 from datetime import datetime
-import random
 import plotly.graph_objects as go
 import smtplib
 from email.mime.text import MIMEText
@@ -172,38 +171,9 @@ def horario_sistema():
     return {"operacao_liberada": hora >= 8 and dia < 5}
 
 # =========================
-# 📊 BACKTEST ORIGINAL
+# 📊 BACKTEST SIMPLES
 # =========================
-def backtest_por_ativo(df):
-
-    wins = 0
-    losses = 0
-
-    for i in range(60, len(df) - 1):
-
-        sub = df.iloc[:i]
-        sig = sinal(sub)
-
-        if sig == "AGUARDAR":
-            continue
-
-        price = sub["close"].iloc[-1]
-        next_price = df["close"].iloc[i + 1]
-
-        if (sig == "COMPRA" and next_price > price) or (sig == "VENDA" and next_price < price):
-            wins += 1
-        else:
-            losses += 1
-
-    total = wins + losses
-    winrate = (wins / total * 100) if total > 0 else 0
-
-    return wins, losses, total, round(winrate, 2)
-
-# =========================
-# 📊 BACKTEST ISOLADO
-# =========================
-def backtest_individual(df):
+def backtest_simples(df):
 
     wins = 0
     losses = 0
@@ -211,7 +181,6 @@ def backtest_individual(df):
     for i in range(60, len(df)-1):
 
         sub = df.iloc[:i]
-
         sig = sinal(sub)
 
         if sig == "AGUARDAR":
@@ -226,12 +195,12 @@ def backtest_individual(df):
             losses += 1
 
     total = wins + losses
-    winrate = (wins / total * 100) if total > 0 else 0
+    wr = (wins / total * 100) if total > 0 else 0
 
-    return wins, losses, total, round(winrate, 2)
+    return wins, losses, total, round(wr, 2)
 
 # =========================
-# 📊 BACKTEST GBP COLAB (ADICIONADO)
+# 📊 BACKTEST GBP COLAB
 # =========================
 def backtest_gbp_colab(df):
 
@@ -287,13 +256,11 @@ def backtest_gbp_colab(df):
             continue
 
         if resultado == 1:
-            lucro = saldo * risco
-            saldo += lucro
+            saldo += saldo * risco
             wins += 1
             loss_seq = 0
         else:
-            preju = saldo * risco
-            saldo -= preju
+            saldo -= saldo * risco
             losses += 1
             loss_seq += 1
             max_loss_seq = max(max_loss_seq, loss_seq)
@@ -301,9 +268,19 @@ def backtest_gbp_colab(df):
         equity.append(saldo)
 
     total = wins + losses
-    winrate = (wins / total * 100) if total > 0 else 0
+    wr = (wins / total * 100) if total > 0 else 0
 
-    return saldo, winrate, wins, losses, equity, max_loss_seq
+    return saldo, wr, wins, losses, equity, max_loss_seq
+
+# =========================
+# 🚀 CONTROLADOR ÚNICO
+# =========================
+def rodar_backtest(ativo, df):
+
+    if ativo == "GBP/USD":
+        return backtest_gbp_colab(df)
+
+    return backtest_simples(df)
 
 # =========================
 # 🚀 EXECUÇÃO
@@ -339,34 +316,32 @@ if ligado:
             if sig == "VENDA":
                 enviar_email("📉 VENDA", f"{ativo} - {preco}")
 
-        # BACKTEST ORIGINAL
-        w, l, t, wr = backtest_por_ativo(df)
+        # 🔥 1 BACKTEST POR ATIVO (AGORA CORRETO)
+        result = rodar_backtest(ativo, df)
 
-        # BACKTEST ISOLADO
-        w2, l2, t2, wr2 = backtest_individual(df)
-
-        ranking[ativo] = wr2
-
-        st.markdown("### 📊 BACKTEST ORIGINAL")
-        st.write(w, l, t, wr)
-
-        st.markdown("### 📊 BACKTEST ISOLADO")
-        st.write(w2, l2, t2, wr2)
-
-        # 🔥 BACKTEST GBP COLAB (SÓ PARA GBP)
         if ativo == "GBP/USD":
-            saldo, wr3, w3, l3, equity, max_ls = backtest_gbp_colab(df)
+            saldo, wr, w, l, equity, max_ls = result
 
             st.markdown("### 📊 BACKTEST GBP (COLAB)")
             st.write("💰 Saldo:", round(saldo, 2))
-            st.write("📊 Winrate:", wr3)
-            st.write("✅ Wins:", w3)
-            st.write("❌ Losses:", l3)
+            st.write("📊 Winrate:", wr)
+            st.write("✅ Wins:", w)
+            st.write("❌ Losses:", l)
             st.write("🔻 Max Loss Streak:", max_ls)
 
             fig = go.Figure()
             fig.add_trace(go.Scatter(y=equity))
             st.plotly_chart(fig, use_container_width=True)
+
+            ranking[ativo] = wr
+
+        else:
+            w, l, t, wr = result
+
+            st.markdown("### 📊 BACKTEST")
+            st.write(w, l, t, wr)
+
+            ranking[ativo] = wr
 
     melhor = max(ranking, key=ranking.get)
 
