@@ -10,7 +10,6 @@ from ta.volatility import AverageTrueRange
 from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
-import requests  # 🔥 ADICIONADO (NOTÍCIAS)
 
 # =========================
 # EMAIL
@@ -34,66 +33,17 @@ def enviar_email(assunto, mensagem):
     except:
         pass
 
-        
-# =========================
-# 📰 NOTÍCIAS ECONÔMICAS (ADICIONADO)
-# =========================
-def get_economic_news():
-    url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
-
-    try:
-        r = requests.get(url, timeout=10)
-        return r.json()
-    except:
-        return []
-
-def filter_news(data, assets):
-    news_list = []
-    now = datetime.utcnow()
-
-    for e in data:
-        try:
-            currency = e.get("currency", "")
-            impact = e.get("impact", "")
-            title = e.get("title", "")
-            time_str = e.get("date", "")
-
-            if currency not in assets:
-                continue
-
-            event_time = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
-            minutes = (event_time - now).total_seconds() / 60
-
-            news_list.append({
-                "Moeda": currency,
-                "Evento": title,
-                "Impacto": impact,
-                "Horário": event_time,
-                "Minutos": round(minutes)
-            })
-
-        except:
-            continue
-
-    return sorted(news_list, key=lambda x: x["Minutos"])
-
-def get_news_status(news_list):
-    for n in news_list:
-        if n["Impacto"] == "High" and 0 < n["Minutos"] < 60:
-            return "🔴 ALTA VOLATILIDADE"
-
-        if n["Impacto"] == "High" and 60 < n["Minutos"] < 180:
-            return "🟡 ATENÇÃO"
-
-    return "🟢 NORMAL"
-
-
 # =========================
 # CONFIG
 # =========================
 st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
 st.title("🤖 ROBÔ FOREX IA v9 - MULTI ATIVOS")
 
+ligado = st.toggle("🔌 Ligar Robô", value=True)
+
+td = TDClient(st.secrets["API_KEY"])
+
+ativos = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"]
 
 # =========================
 # DADOS
@@ -559,24 +509,6 @@ if ligado:
 
     st.markdown("## 📊 PAINEL MULTI ATIVOS")
 
-    # =========================
-    # 📰 PAINEL DE NOTÍCIAS (ADICIONADO)
-    # =========================
-    st.markdown("## 📰 NOTÍCIAS ECONÔMICAS")
-
-    assets_news = ["USD", "EUR", "GBP"]
-
-    data_news = get_economic_news()
-    news = filter_news(data_news, assets_news)
-    status_news = get_news_status(news)
-
-    st.markdown(f"### Status do Mercado: {status_news}")
-
-    if news:
-        st.dataframe(pd.DataFrame(news), use_container_width=True)
-    else:
-        st.info("Sem notícias relevantes no momento.")
-
     ranking = {}
 
     for ativo in ativos:
@@ -603,6 +535,7 @@ if ligado:
 
         result = rodar_backtest(ativo, df)
 
+        # 🔥 PADRÃO ÚNICO PARA TODOS
         if ativo in ["GBP/USD", "USD/JPY", "AUD/USD"]:
             saldo, wr, w, l, max_ls = result
             st.write(f"Wins: {w}  Losses: {l}  Winrate: {round(wr,1)}")
@@ -620,8 +553,7 @@ if ligado:
 
 else:
     st.warning("Robô desligado")
-
-# =========================
+    # =========================
 # 🚨 PAINEL DE ENTRADAS EM TEMPO REAL (NOVO)
 # =========================
 
@@ -651,6 +583,7 @@ for ativo in ativos:
         st.write("📊 Tipo:", sig)
         st.write("💰 Preço:", preco)
 
+        # ⚠️ ALERTA CONTROLADO (NÃO SPAM)
         if st.session_state.get(f"alert_{ativo}") != sig:
 
             enviar_email(
