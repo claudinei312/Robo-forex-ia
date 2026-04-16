@@ -98,7 +98,7 @@ ligado = st.toggle("🔌 Ligar Robô", value=True)
 
 td = TDClient(st.secrets["API_KEY"])
 
-ativos = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"]
+ativos = ["EUR/USD", "USD/JPY", "AUD/USD"]
 
 # =========================
 # DADOS
@@ -257,77 +257,6 @@ def backtest_simples(df):
     wr = (wins / total * 100) if total > 0 else 0
 
     return wins, losses, total, round(wr, 2)
-
-# =========================
-# GBP COLAB
-# =========================
-def backtest_gbp_colab(df):
-
-    saldo = 1000
-    risco = 0.02
-
-    wins = 0
-    losses = 0
-
-    max_loss_seq = 0
-    loss_seq = 0
-
-    df = df.tail(500)
-
-    for i in range(50, len(df)-20):
-
-        sub = df.iloc[:i]
-        sig = sinal(sub)
-
-        if sig == "AGUARDAR":
-            continue
-
-        entrada = sub["close"].iloc[-1]
-        atr = sub["ATR"].iloc[-1]
-
-        stop = atr * 1.2
-        take = atr * 1.2
-
-        resultado = None
-
-        for j in range(i+1, i+20):
-
-            high = df["high"].iloc[j]
-            low = df["low"].iloc[j]
-
-            if sig == "COMPRA":
-                if low <= entrada - stop:
-                    resultado = -1
-                    break
-                if high >= entrada + take:
-                    resultado = 1
-                    break
-
-            elif sig == "VENDA":
-                if high >= entrada + stop:
-                    resultado = -1
-                    break
-                if low <= entrada - take:
-                    resultado = 1
-                    break
-
-        if resultado is None:
-            continue
-
-        if resultado == 1:
-            saldo += saldo * risco
-            wins += 1
-            loss_seq = 0
-        else:
-            saldo -= saldo * risco
-            losses += 1
-            loss_seq += 1
-            max_loss_seq = max(max_loss_seq, loss_seq)
-
-    total = wins + losses
-    wr = (wins / total * 100) if total > 0 else 0
-
-    return saldo, wr, wins, losses, max_loss_seq
 
 # =========================
 # USDJPY COLAB
@@ -543,9 +472,6 @@ def backtest_audusd_colab(df):
 # CONTROLADOR
 # =========================
 def rodar_backtest(ativo, df):
-
-    if ativo == "GBP/USD":
-        return backtest_gbp_colab(df)
 
     if ativo == "USD/JPY":
         return backtest_usdjpy_colab(df)
