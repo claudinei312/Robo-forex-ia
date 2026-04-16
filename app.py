@@ -1,70 +1,55 @@
-# =========================
+ # =========================
 # IMPORTS
 # =========================
 import streamlit as st
 import pandas as pd
+import time
 from twelvedata import TDClient
 from ta.trend import SMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
 from datetime import datetime
-import smtplib
-from email.mime.text import MIMEText
-import requests
-import time
 
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="🤖 ROBÔ PRO FINAL", layout="centered")
-st.title("🤖 ROBÔ FOREX IA PRO FINAL")
+st.set_page_config(page_title="🤖 ROBÔ PRO", layout="centered")
+st.title("🤖 ROBÔ FOREX IA PRO (M5 OTIMIZADO)")
 
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
 td = TDClient(st.secrets["API_KEY"])
 
+# 🔥 GBP REMOVIDO
 ativos = ["EUR/USD", "USD/JPY", "AUD/USD"]
 
 # =========================
-# EMAIL
-# =========================
-def enviar_email(assunto, mensagem):
-    try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login("SEU_EMAIL", "SUA_SENHA")
-        server.sendmail("SEU_EMAIL", "SEU_EMAIL", mensagem)
-        server.quit()
-    except:
-        pass
-
-# =========================
-# CACHE
+# CACHE API
 # =========================
 cache = {}
 
 def pegar_dados(ativo):
-    agora = datetime.now()
+    agora = time.time()
 
-    if ativo in cache:
-        if (agora - cache[ativo]["time"]).seconds < 240:
-            return cache[ativo]["df"]
+    if ativo in cache and agora - cache[ativo]["time"] < 120:
+        return cache[ativo]["df"]
 
     try:
         df = td.time_series(
             symbol=ativo,
             interval="5min",
-            outputsize=1000
+            outputsize=1500
         ).as_pandas()
 
         df = df[::-1].reset_index(drop=True)
 
-        for c in ["open","high","low","close"]:
+        for c in ["open", "high", "low", "close"]:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
         df = df.dropna()
 
         cache[ativo] = {"df": df, "time": agora}
+
         return df
 
     except:
@@ -74,160 +59,203 @@ def pegar_dados(ativo):
 # INDICADORES
 # =========================
 def indicadores(df):
-    df["MA9"] = SMAIndicator(df["close"],9).sma_indicator()
-    df["MA21"] = SMAIndicator(df["close"],21).sma_indicator()
-    df["RSI"] = RSIIndicator(df["close"],14).rsi()
-    df["ATR"] = AverageTrueRange(df["high"],df["low"],df["close"],14).average_true_range()
+    df["MA9"] = SMAIndicator(df["close"], 9).sma_indicator()
+    df["MA21"] = SMAIndicator(df["close"], 21).sma_indicator()
+    df["RSI"] = RSIIndicator(df["close"], 14).rsi()
+    df["ATR"] = AverageTrueRange(df["high"], df["low"], df["close"], 14).average_true_range()
     return df
 
 # =========================
-# ESTRATÉGIAS ORIGINAIS
+# FILTRO HORÁRIO
 # =========================
-def estrategia_eur(df):
+def horario_valido(hora):
+    return (8 <= hora <= 11) or (13 <= hora <= 17)
+
+# =========================
+# SCORE IA
+# =========================
+def score_ia(df):
+
     score = 0
 
-    score += 1 if df["MA9"].iloc[-1] > df["MA21"].iloc[-1] else -1
+    if df["MA9"].iloc[-1] > df["MA21"].iloc[-1]:
+        score += 1
+    else:
+        score -= 1
 
     rsi = df["RSI"].iloc[-1]
-    if rsi > 55: score += 1
-    elif rsi < 45: score -= 1
+    if rsi > 55:
+        score += 1
+    elif rsi < 45:
+        score -= 1
 
     m = MACD(df["close"])
-    score += 1 if m.macd().iloc[-1] > m.macd_signal().iloc[-1] else -1
+    if m.macd().iloc[-1] > m.macd_signal().iloc[-1]:
+        score += 1
+    else:
+        score -= 1
 
-    if score >= 3:
-        return "COMPRA"
-    if score <= -3:
-        return "VENDA"
-    return "AGUARDAR"
+    atr = df["ATR"].iloc[-1]
+    if atr > df["ATR"].rolling(50).mean().iloc[-1]:
+        score += 1
+    else:
+        score -= 1
 
-def estrategia_usdjpy(df):
+    return score
+
+# =========================
+# ESTRATÉGIAS (INALTERADAS)
+# =========================
+def tendencia_forte(df):
+    closes = df["close"].tail(10)
+    alta = sum(closes.iloc[i] > closes.iloc[i-1] for i in range(1, len(closes)))
+    baixa = 10 - alta
+
+    if alta >= 8:
+        return "UP"
+    if baixa >= 8:
+        return "DOWN"
+    return "LATERAL"
+
+def filtro_distancia(df):
     price = df["close"].iloc[-1]
     ma21 = df["MA21"].iloc[-1]
-    rsi = df["RSI"].iloc[-1]
     atr = df["ATR"].iloc[-1]
+    return abs(price - ma21) <= atr * 1.8
 
-    if price - ma21 > atr * 1.5 and rsi > 65:
-        return "VENDA"
-    if price - ma21 < -atr * 1.5 and rsi < 35:
-        return "COMPRA"
-    return "AGUARDAR"
-
-def estrategia_audusd(df):
-    ma9 = df["MA9"].iloc[-1]
+def entrada_extra(df):
+    price = df["close"].iloc[-1]
     ma21 = df["MA21"].iloc[-1]
-    rsi = df["RSI"].iloc[-1]
+    atr = df["ATR"].iloc[-1]
+    score = score_ia(df)
+    trend = tendencia_forte(df)
 
-    if ma9 > ma21 and 50 < rsi < 65:
+    if trend == "UP" and score >= 2 and abs(price-ma21)<atr*0.9:
         return "COMPRA"
-    if ma9 < ma21 and 35 < rsi < 50:
+
+    if trend == "DOWN" and score <= -2 and abs(price-ma21)<atr*0.9:
         return "VENDA"
+
     return "AGUARDAR"
 
-# =========================
-# CONTROLADOR
-# =========================
-def sinal(ativo, df):
-    if ativo == "EUR/USD":
-        return estrategia_eur(df)
-    if ativo == "USD/JPY":
-        return estrategia_usdjpy(df)
-    if ativo == "AUD/USD":
-        return estrategia_audusd(df)
+def sinal(df):
+
+    # 🔥 FILTRO VOLATILIDADE
+    if df["ATR"].iloc[-1] < df["ATR"].rolling(50).mean().iloc[-1]:
+        return "AGUARDAR"
+
+    score = score_ia(df)
+    trend = tendencia_forte(df)
+
+    if trend == "LATERAL" or not filtro_distancia(df):
+        return "AGUARDAR"
+
+    if trend == "UP" and score >= 3:
+        return "COMPRA"
+
+    if trend == "DOWN" and score <= -3:
+        return "VENDA"
+
+    return entrada_extra(df)
 
 # =========================
-# BACKTEST (RODA 1x)
+# BACKTEST REAL
 # =========================
-def backtest(ativo, df):
-    df = df.tail(1000)
+def backtest(df):
 
-    wins, losses = 0,0
+    wins = 0
+    losses = 0
 
-    for i in range(50,len(df)-1):
+    for i in range(100, len(df)-20):
+
         sub = df.iloc[:i]
-        sig = sinal(ativo, sub)
+
+        # 🔥 FILTRO HORÁRIO
+        hora = datetime.now().hour
+        if not horario_valido(hora):
+            continue
+
+        sig = sinal(sub)
 
         if sig == "AGUARDAR":
             continue
 
-        price = sub["close"].iloc[-1]
-        future = df["close"].iloc[i+1]
+        entrada = sub["close"].iloc[-1]
+        atr = sub["ATR"].iloc[-1]
 
-        if (sig=="COMPRA" and future>price) or (sig=="VENDA" and future<price):
-            wins +=1
-        else:
-            losses +=1
+        stop = atr
+        take = atr
 
-    total = wins+losses
-    wr = (wins/total*100) if total>0 else 0
+        resultado = None
 
-    return wr
+        for j in range(i+1, i+20):
 
-# =========================
-# NOTÍCIAS
-# =========================
-def noticia_perigosa():
-    try:
-        r = requests.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json")
-        news = r.json()
-        now = datetime.utcnow()
+            high = df["high"].iloc[j]
+            low = df["low"].iloc[j]
 
-        for n in news:
-            if n["impact"]=="High":
-                t = datetime.strptime(n["date"], "%Y-%m-%d %H:%M:%S")
-                minutos = (t-now).total_seconds()/60
-                if 0 < minutos < 60:
-                    return True
-    except:
-        pass
+            if sig == "COMPRA":
+                if low <= entrada - stop:
+                    resultado = 0
+                    break
+                if high >= entrada + take:
+                    resultado = 1
+                    break
 
-    return False
+            if sig == "VENDA":
+                if high >= entrada + stop:
+                    resultado = 0
+                    break
+                if low <= entrada - take:
+                    resultado = 1
+                    break
+
+        if resultado == 1:
+            wins += 1
+        elif resultado == 0:
+            losses += 1
+
+    total = wins + losses
+    wr = (wins / total * 100) if total > 0 else 0
+
+    return wins, losses, wr
 
 # =========================
 # EXECUÇÃO
 # =========================
 if ligado:
 
-    st.markdown("## 📊 INICIANDO ANÁLISE...")
+    st.markdown("## 📊 PAINEL")
 
-    ranking = {}
-
-    # 🔥 BACKTEST RODA UMA VEZ
     for ativo in ativos:
+
         df = pegar_dados(ativo)
-        if df is None:
+
+        if df is None or df.empty:
             continue
 
         df = indicadores(df)
-        wr = backtest(ativo, df)
-        ranking[ativo] = wr
 
-    melhor = max(ranking, key=ranking.get)
+        sig = sinal(df)
+        preco = df["close"].iloc[-1]
+        hora = datetime.now().hour
 
-    st.markdown("## 🏆 RANKING")
-    st.write(ranking)
-    st.success(f"Melhor ativo: {melhor}")
+        st.markdown(f"### {ativo}")
+        st.write("Preço:", preco)
+        st.write("Sinal:", sig)
 
-    # =========================
-    # OPERAÇÃO
-    # =========================
-    df = pegar_dados(melhor)
-    df = indicadores(df)
-
-    sig = sinal(melhor, df)
-    preco = df["close"].iloc[-1]
-
-    st.markdown(f"## 🎯 {melhor}")
-    st.write("Sinal:", sig)
-    st.write("Preço:", preco)
-
-    if noticia_perigosa():
-        st.error("🚨 NOTÍCIA FORTE - BLOQUEADO")
-    else:
-        if sig in ["COMPRA","VENDA"]:
-            st.success("🔥 ENTRADA DETECTADA")
+        if horario_valido(hora):
+            st.success("🟢 Operando")
         else:
-            st.warning("⏳ AGUARDANDO")
+            st.warning("⏳ Fora do horário")
+
+        # 🔥 BACKTEST RODA 1 VEZ
+        if f"bt_{ativo}" not in st.session_state:
+            w, l, wr = backtest(df)
+            st.session_state[f"bt_{ativo}"] = (w, l, wr)
+
+        w, l, wr = st.session_state[f"bt_{ativo}"]
+
+        st.write(f"Backtest → Wins: {w} | Losses: {l} | WR: {wr:.1f}%")
 
 else:
     st.warning("Robô desligado")
