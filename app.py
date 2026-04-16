@@ -8,80 +8,14 @@ from ta.trend import SMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
 from datetime import datetime
-import smtplib
-from email.mime.text import MIMEText
 import requests
 
 
 # =========================
-# EMAIL
+# CONFIG STREAMLIT
 # =========================
-def enviar_email(assunto, mensagem):
-
-    email = "claudineialvesjunior@gmail.com"
-    senha = "dvuw lmde sfse tyax"
-
-    msg = MIMEText(mensagem)
-    msg["Subject"] = assunto
-    msg["From"] = email
-    msg["To"] = email
-
-    try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(email, senha)
-        server.sendmail(email, email, msg.as_string())
-        server.quit()
-    except:
-        pass
-
-
-# =========================
-# NOTÍCIAS
-# =========================
-def get_economic_news():
-    url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
-    try:
-        return requests.get(url, timeout=10).json()
-    except:
-        return []
-
-
-def filter_news(data, assets):
-    news_list = []
-    now = datetime.utcnow()
-
-    assets = set(assets)
-
-    for e in data:
-        try:
-            currency = e.get("currency", "").strip().upper()
-
-            if currency not in assets:
-                continue
-
-            event_time = datetime.strptime(e.get("date", ""), "%Y-%m-%d %H:%M:%S")
-            minutes = (event_time - now).total_seconds() / 60
-
-            news_list.append({
-                "Moeda": currency,
-                "Evento": e.get("title", ""),
-                "Impacto": e.get("impact", ""),
-                "Horário": event_time,
-                "Minutos": round(minutes)
-            })
-
-        except:
-            continue
-
-    return sorted(news_list, key=lambda x: x["Minutos"])
-
-
-# =========================
-# CONFIG
-# =========================
-st.set_page_config(page_title="🤖 ROBÔ IA MULTI-STRATEGY", layout="centered")
-st.title("🤖 ROBÔ IA - STRATEGY SWITCHING")
+st.set_page_config(page_title="🤖 ROBÔ IA OTIMIZADO", layout="centered")
+st.title("🤖 ROBÔ IA MULTI-ESTRATÉGIA (OTIMIZADO)")
 
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
@@ -91,14 +25,15 @@ ativos = ["EUR/USD", "USD/JPY", "AUD/USD"]
 
 
 # =========================
-# DADOS
+# CACHE DADOS (EVITA TRAVAMENTO)
 # =========================
+@st.cache_data(ttl=60)
 def pegar_dados(ativo):
     try:
         df = td.time_series(
             symbol=ativo,
             interval="5min",
-            outputsize=500
+            outputsize=300
         ).as_pandas()
 
         df = df[::-1].reset_index(drop=True)
@@ -157,7 +92,6 @@ def estrategia_trend(df):
         return "COMPRA"
     if df["MA9"].iloc[-1] < df["MA21"].iloc[-1]:
         return "VENDA"
-
     return "AGUARDAR"
 
 
@@ -169,7 +103,6 @@ def estrategia_reversao(df):
         return "COMPRA"
     if rsi > 70:
         return "VENDA"
-
     return "AGUARDAR"
 
 
@@ -197,19 +130,19 @@ def sinal(df):
     modo = escolher_estrategia(df)
 
     if modo == "TREND":
-        return estrategia_trend(df)
+        return estrategia_trend(df), modo
 
     if modo == "REVERSAO":
-        return estrategia_reversao(df)
+        return estrategia_reversao(df), modo
 
     if modo == "BREAKOUT":
-        return estrategia_breakout(df)
+        return estrategia_breakout(df), modo
 
-    return "AGUARDAR"
+    return "AGUARDAR", modo
 
 
 # =========================
-# BACKTEST REALISTA
+# BACKTEST REALISTA (SÓ MANUAL)
 # =========================
 def backtest_realista(df):
 
@@ -223,7 +156,7 @@ def backtest_realista(df):
     for i in range(60, len(df) - max_bars):
 
         sub = df.iloc[:i]
-        sig = sinal(sub)
+        sig, _ = sinal(sub)
 
         if sig == "AGUARDAR":
             continue
@@ -269,25 +202,11 @@ def backtest_realista(df):
 
 
 # =========================
-# BACKTEST CONTROL
-# =========================
-def rodar_backtest(df):
-    return backtest_realista(df)
-
-
-# =========================
-# EXECUÇÃO
+# EXECUÇÃO PRINCIPAL
 # =========================
 if ligado:
 
-    st.markdown("## 📊 ROBÔ IA MULTI-ESTRATÉGIA")
-
-    assets_news = ["USD", "EUR"]
-
-    news = filter_news(get_economic_news(), assets_news)
-
-    st.markdown("## 📰 NOTÍCIAS")
-    st.dataframe(pd.DataFrame(news))
+    st.markdown("## 📊 PAINEL IA OTIMIZADO")
 
     ranking = {}
 
@@ -299,20 +218,26 @@ if ligado:
 
         df = indicadores(df)
 
-        sig = sinal(df)
+        sig, modo = sinal(df)
         preco = df["close"].iloc[-1]
 
         st.markdown(f"### {ativo}")
-        st.write("Preço:", preco)
-        st.write("Sinal:", sig)
+        st.write("💰 Preço:", preco)
+        st.write("🧠 IA MODE:", modo)
+        st.write("📌 Sinal:", sig)
 
-        w, l, t, wr = rodar_backtest(df)
+        # BACKTEST SOMENTE SE USUÁRIO QUISER
+        if st.button(f"Rodar Backtest {ativo}"):
 
-        st.write(f"Wins: {w} Losses: {l} Winrate: {wr}%")
+            w, l, t, wr = backtest_realista(df)
 
-        ranking[ativo] = wr
+            st.write(f"📊 Wins: {w}")
+            st.write(f"📉 Losses: {l}")
+            st.write(f"🎯 Winrate: {wr}%")
 
-    st.markdown("## 🏆 Ranking")
+            ranking[ativo] = wr
+
+    st.markdown("## 🏆 Ranking (quando rodar backtest)")
     st.write(ranking)
 
 else:
