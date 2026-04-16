@@ -495,7 +495,7 @@ if ligado:
     # =========================
     st.markdown("## 📰 NOTÍCIAS ECONÔMICAS")
 
-    assets_news = ["USD", "EUR", "GBP"]
+    assets_news = ["USD", "EUR"]
 
     data_news = get_economic_news()
     news = filter_news(data_news, assets_news)
