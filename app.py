@@ -11,90 +11,35 @@ from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
 import requests
-
-# =========================
-# EMAIL
-# =========================
-def enviar_email(assunto, mensagem):
-    email = "claudineialvesjunior@gmail.com"
-    senha = "dvuw lmde sfse tyax"
-
-    msg = MIMEText(mensagem)
-    msg["Subject"] = assunto
-    msg["From"] = email
-    msg["To"] = email
-
-    try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(email, senha)
-        server.sendmail(email, email, msg.as_string())
-        server.quit()
-    except:
-        pass
-
-# =========================
-# NOTÍCIAS
-# =========================
-def get_economic_news():
-    url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
-    try:
-        r = requests.get(url, timeout=10)
-        return r.json()
-    except:
-        return []
-
-def filter_news(data, assets):
-    news_list = []
-    now = datetime.utcnow()
-
-    for e in data:
-        try:
-            currency = e.get("currency", "")
-            impact = e.get("impact", "")
-            title = e.get("title", "")
-            time_str = e.get("date", "")
-
-            if currency not in assets:
-                continue
-
-            event_time = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
-            minutes = (event_time - now).total_seconds() / 60
-
-            news_list.append({
-                "Moeda": currency,
-                "Evento": title,
-                "Impacto": impact,
-                "Horário": event_time,
-                "Minutos": round(minutes)
-            })
-        except:
-            continue
-
-    return sorted(news_list, key=lambda x: x["Minutos"])
-
-def get_news_status(news_list):
-    for n in news_list:
-        if n["Impacto"] == "High" and 0 < n["Minutos"] < 60:
-            return "🔴 ALTA VOLATILIDADE"
-        if n["Impacto"] == "High" and 60 < n["Minutos"] < 180:
-            return "🟡 ATENÇÃO"
-    return "🟢 NORMAL"
+import time
 
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
-st.title("🤖 ROBÔ FOREX IA v9 - MULTI ATIVOS")
+st.set_page_config(page_title="🤖 ROBÔ PRO FINAL", layout="centered")
+st.title("🤖 ROBÔ FOREX IA PRO FINAL")
 
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
 td = TDClient(st.secrets["API_KEY"])
 
-ativos = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"]
+ativos = ["EUR/USD", "USD/JPY", "AUD/USD"]
 
 # =========================
-# CACHE (ECONOMIA API)
+# EMAIL
+# =========================
+def enviar_email(assunto, mensagem):
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login("SEU_EMAIL", "SUA_SENHA")
+        server.sendmail("SEU_EMAIL", "SEU_EMAIL", mensagem)
+        server.quit()
+    except:
+        pass
+
+# =========================
+# CACHE
 # =========================
 cache = {}
 
@@ -102,26 +47,24 @@ def pegar_dados(ativo):
     agora = datetime.now()
 
     if ativo in cache:
-        ultimo = cache[ativo]["time"]
-        if (agora - ultimo).seconds < 240:
+        if (agora - cache[ativo]["time"]).seconds < 240:
             return cache[ativo]["df"]
 
     try:
         df = td.time_series(
             symbol=ativo,
             interval="5min",
-            outputsize=1200  # ~10 dias M5
+            outputsize=1000
         ).as_pandas()
 
         df = df[::-1].reset_index(drop=True)
 
-        for c in ["open", "high", "low", "close"]:
+        for c in ["open","high","low","close"]:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
         df = df.dropna()
 
         cache[ativo] = {"df": df, "time": agora}
-
         return df
 
     except:
@@ -131,92 +74,78 @@ def pegar_dados(ativo):
 # INDICADORES
 # =========================
 def indicadores(df):
-    df["MA9"] = SMAIndicator(df["close"], 9).sma_indicator()
-    df["MA21"] = SMAIndicator(df["close"], 21).sma_indicator()
-    df["RSI"] = RSIIndicator(df["close"], 14).rsi()
-    df["ATR"] = AverageTrueRange(df["high"], df["low"], df["close"], 14).average_true_range()
+    df["MA9"] = SMAIndicator(df["close"],9).sma_indicator()
+    df["MA21"] = SMAIndicator(df["close"],21).sma_indicator()
+    df["RSI"] = RSIIndicator(df["close"],14).rsi()
+    df["ATR"] = AverageTrueRange(df["high"],df["low"],df["close"],14).average_true_range()
     return df
 
 # =========================
-# IA SCORE
+# ESTRATÉGIAS ORIGINAIS
 # =========================
-def score_ia(df):
+def estrategia_eur(df):
     score = 0
 
     score += 1 if df["MA9"].iloc[-1] > df["MA21"].iloc[-1] else -1
 
     rsi = df["RSI"].iloc[-1]
-    if rsi > 55:
-        score += 1
-    elif rsi < 45:
-        score -= 1
+    if rsi > 55: score += 1
+    elif rsi < 45: score -= 1
 
     m = MACD(df["close"])
     score += 1 if m.macd().iloc[-1] > m.macd_signal().iloc[-1] else -1
 
-    atr = df["ATR"].iloc[-1]
-    score += 1 if atr > df["ATR"].rolling(50).mean().iloc[-1] else -1
-
-    return score
-
-# =========================
-# ESTRATÉGIAS
-# =========================
-def tendencia_forte(df):
-    closes = df["close"].tail(10)
-    alta = sum(closes.iloc[i] > closes.iloc[i-1] for i in range(1, len(closes)))
-    baixa = len(closes) - 1 - alta
-
-    if alta >= 8:
-        return "UP"
-    if baixa >= 8:
-        return "DOWN"
-    return "LATERAL"
-
-def filtro_distancia(df):
-    price = df["close"].iloc[-1]
-    ma21 = df["MA21"].iloc[-1]
-    atr = df["ATR"].iloc[-1]
-    return abs(price - ma21) <= atr * 1.8
-
-def entrada_extra(df):
-    price = df["close"].iloc[-1]
-    ma21 = df["MA21"].iloc[-1]
-    atr = df["ATR"].iloc[-1]
-    score = score_ia(df)
-    trend = tendencia_forte(df)
-
-    if trend == "UP" and score >= 2 and abs(price-ma21)<atr*0.9:
+    if score >= 3:
         return "COMPRA"
-    if trend == "DOWN" and score <= -2 and abs(price-ma21)<atr*0.9:
+    if score <= -3:
         return "VENDA"
     return "AGUARDAR"
 
-def sinal(df):
-    score = score_ia(df)
-    trend = tendencia_forte(df)
+def estrategia_usdjpy(df):
+    price = df["close"].iloc[-1]
+    ma21 = df["MA21"].iloc[-1]
+    rsi = df["RSI"].iloc[-1]
+    atr = df["ATR"].iloc[-1]
 
-    if trend == "LATERAL" or not filtro_distancia(df):
-        return "AGUARDAR"
-
-    if trend == "UP" and score >= 3:
-        return "COMPRA"
-    if trend == "DOWN" and score <= -3:
+    if price - ma21 > atr * 1.5 and rsi > 65:
         return "VENDA"
+    if price - ma21 < -atr * 1.5 and rsi < 35:
+        return "COMPRA"
+    return "AGUARDAR"
 
-    return entrada_extra(df)
+def estrategia_audusd(df):
+    ma9 = df["MA9"].iloc[-1]
+    ma21 = df["MA21"].iloc[-1]
+    rsi = df["RSI"].iloc[-1]
+
+    if ma9 > ma21 and 50 < rsi < 65:
+        return "COMPRA"
+    if ma9 < ma21 and 35 < rsi < 50:
+        return "VENDA"
+    return "AGUARDAR"
 
 # =========================
-# BACKTESTS
+# CONTROLADOR
 # =========================
-def backtest_simples(df):
+def sinal(ativo, df):
+    if ativo == "EUR/USD":
+        return estrategia_eur(df)
+    if ativo == "USD/JPY":
+        return estrategia_usdjpy(df)
+    if ativo == "AUD/USD":
+        return estrategia_audusd(df)
+
+# =========================
+# BACKTEST (RODA 1x)
+# =========================
+def backtest(ativo, df):
     df = df.tail(1000)
 
-    wins, losses = 0, 0
+    wins, losses = 0,0
 
-    for i in range(60, len(df)-1):
+    for i in range(50,len(df)-1):
         sub = df.iloc[:i]
-        sig = sinal(sub)
+        sig = sinal(ativo, sub)
 
         if sig == "AGUARDAR":
             continue
@@ -224,68 +153,81 @@ def backtest_simples(df):
         price = sub["close"].iloc[-1]
         future = df["close"].iloc[i+1]
 
-        if (sig == "COMPRA" and future > price) or (sig == "VENDA" and future < price):
-            wins += 1
+        if (sig=="COMPRA" and future>price) or (sig=="VENDA" and future<price):
+            wins +=1
         else:
-            losses += 1
+            losses +=1
 
-    total = wins + losses
-    wr = (wins / total * 100) if total > 0 else 0
+    total = wins+losses
+    wr = (wins/total*100) if total>0 else 0
 
-    return wins, losses, total, round(wr, 2)
+    return wr
 
-# (outros backtests mantidos iguais, só com tail(1000))
-# Para não ficar gigante aqui, eles seguem exatamente como você já tinha,
-# apenas trocando df.tail(500) por df.tail(1000)
+# =========================
+# NOTÍCIAS
+# =========================
+def noticia_perigosa():
+    try:
+        r = requests.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json")
+        news = r.json()
+        now = datetime.utcnow()
 
-def rodar_backtest(ativo, df):
-    return backtest_simples(df)
+        for n in news:
+            if n["impact"]=="High":
+                t = datetime.strptime(n["date"], "%Y-%m-%d %H:%M:%S")
+                minutos = (t-now).total_seconds()/60
+                if 0 < minutos < 60:
+                    return True
+    except:
+        pass
+
+    return False
 
 # =========================
 # EXECUÇÃO
 # =========================
 if ligado:
 
-    st.markdown("## 📊 PAINEL MULTI ATIVOS")
+    st.markdown("## 📊 INICIANDO ANÁLISE...")
 
-    data_news = get_economic_news()
-    news = filter_news(data_news, ["USD", "EUR", "GBP"])
-    status_news = get_news_status(news)
+    ranking = {}
 
-    st.markdown(f"### 📰 Status: {status_news}")
-
+    # 🔥 BACKTEST RODA UMA VEZ
     for ativo in ativos:
-
         df = pegar_dados(ativo)
-
-        if df is None or df.empty:
+        if df is None:
             continue
 
         df = indicadores(df)
+        wr = backtest(ativo, df)
+        ranking[ativo] = wr
 
-        sig = sinal(df)
-        preco = df["close"].iloc[-1]
+    melhor = max(ranking, key=ranking.get)
 
-        st.markdown(f"### 📊 {ativo}")
-        st.write("Preço:", preco)
-        st.write("Sinal:", sig)
+    st.markdown("## 🏆 RANKING")
+    st.write(ranking)
+    st.success(f"Melhor ativo: {melhor}")
 
-        # BACKTEST
-        w, l, t, wr = rodar_backtest(ativo, df)
-        st.write(f"📊 Backtest (10 dias)")
-        st.write(f"Wins: {w} | Losses: {l} | WR: {wr}%")
+    # =========================
+    # OPERAÇÃO
+    # =========================
+    df = pegar_dados(melhor)
+    df = indicadores(df)
 
-        if sig in ["COMPRA", "VENDA"]:
+    sig = sinal(melhor, df)
+    preco = df["close"].iloc[-1]
+
+    st.markdown(f"## 🎯 {melhor}")
+    st.write("Sinal:", sig)
+    st.write("Preço:", preco)
+
+    if noticia_perigosa():
+        st.error("🚨 NOTÍCIA FORTE - BLOQUEADO")
+    else:
+        if sig in ["COMPRA","VENDA"]:
             st.success("🔥 ENTRADA DETECTADA")
-
-            if st.session_state.get(f"alert_{ativo}") != sig:
-                enviar_email(
-                    f"🚨 {sig}",
-                    f"{ativo} | {sig} | {preco}"
-                )
-                st.session_state[f"alert_{ativo}"] = sig
         else:
-            st.warning("⏳ Aguardando...")
+            st.warning("⏳ AGUARDANDO")
 
 else:
     st.warning("Robô desligado")
