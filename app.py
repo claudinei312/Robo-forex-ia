@@ -11,16 +11,23 @@ from ta.volatility import AverageTrueRange
 from datetime import datetime
 
 # =========================
+# LIMPA CACHE (REMOVE GBP BUG)
+# =========================
+if "limpo" not in st.session_state:
+    st.session_state.clear()
+    st.session_state["limpo"] = True
+
+# =========================
 # CONFIG
 # =========================
 st.set_page_config(page_title="🤖 ROBÔ PRO", layout="centered")
-st.title("🤖 ROBÔ FOREX IA PRO (M5 OTIMIZADO)")
+st.title("🤖 ROBÔ FOREX IA PRO (M5 REAL)")
 
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
 td = TDClient(st.secrets["API_KEY"])
 
-# 🔥 GBP REMOVIDO
+# 🔥 GBP REMOVIDO DEFINITIVO
 ativos = ["EUR/USD", "USD/JPY", "AUD/USD"]
 
 # =========================
@@ -41,7 +48,9 @@ def pegar_dados(ativo):
             outputsize=1500
         ).as_pandas()
 
-        df = df[::-1].reset_index(drop=True)
+        # 🔥 CORREÇÃO CRÍTICA
+        df = df[::-1]
+        df.index = pd.to_datetime(df.index)
 
         for c in ["open", "high", "low", "close"]:
             df[c] = pd.to_numeric(df[c], errors="coerce")
@@ -104,7 +113,7 @@ def score_ia(df):
     return score
 
 # =========================
-# ESTRATÉGIAS (INALTERADAS)
+# ESTRATÉGIA BASE
 # =========================
 def tendencia_forte(df):
     closes = df["close"].tail(10)
@@ -124,6 +133,7 @@ def filtro_distancia(df):
     return abs(price - ma21) <= atr * 1.8
 
 def entrada_extra(df):
+
     price = df["close"].iloc[-1]
     ma21 = df["MA21"].iloc[-1]
     atr = df["ATR"].iloc[-1]
@@ -170,8 +180,9 @@ def backtest(df):
 
         sub = df.iloc[:i]
 
-        # 🔥 FILTRO HORÁRIO
-        hora = datetime.now().hour
+        # 🔥 AGORA CORRETO
+        hora = sub.index[-1].hour
+
         if not horario_valido(hora):
             continue
 
@@ -201,7 +212,7 @@ def backtest(df):
                     resultado = 1
                     break
 
-            if sig == "VENDA":
+            elif sig == "VENDA":
                 if high >= entrada + stop:
                     resultado = 0
                     break
@@ -237,18 +248,18 @@ if ligado:
 
         sig = sinal(df)
         preco = df["close"].iloc[-1]
-        hora = datetime.now().hour
+        hora_atual = datetime.now().hour
 
         st.markdown(f"### {ativo}")
         st.write("Preço:", preco)
         st.write("Sinal:", sig)
 
-        if horario_valido(hora):
+        if horario_valido(hora_atual):
             st.success("🟢 Operando")
         else:
             st.warning("⏳ Fora do horário")
 
-        # 🔥 BACKTEST RODA 1 VEZ
+        # BACKTEST roda uma vez
         if f"bt_{ativo}" not in st.session_state:
             w, l, wr = backtest(df)
             st.session_state[f"bt_{ativo}"] = (w, l, wr)
