@@ -12,6 +12,7 @@ import smtplib
 from email.mime.text import MIMEText
 import requests
 
+
 # =========================
 # EMAIL
 # =========================
@@ -41,10 +42,10 @@ def enviar_email(assunto, mensagem):
 def get_economic_news():
     url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
     try:
-        r = requests.get(url, timeout=10)
-        return r.json()
+        return requests.get(url, timeout=10).json()
     except:
         return []
+
 
 def filter_news(data, assets):
     news_list = []
@@ -76,20 +77,11 @@ def filter_news(data, assets):
     return sorted(news_list, key=lambda x: x["Minutos"])
 
 
-def get_news_status(news_list):
-    for n in news_list:
-        if n["Impacto"] == "High" and 0 < n["Minutos"] < 60:
-            return "🔴 ALTA VOLATILIDADE"
-        if n["Impacto"] == "High" and 60 < n["Minutos"] < 180:
-            return "🟡 ATENÇÃO"
-    return "🟢 NORMAL"
-
-
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="🤖 Robô IA v9 FULL", layout="centered")
-st.title("🤖 ROBÔ FOREX IA v9 - MULTI ATIVOS")
+st.set_page_config(page_title="🤖 ROBÔ IA MULTI-STRATEGY", layout="centered")
+st.title("🤖 ROBÔ IA - STRATEGY SWITCHING")
 
 ligado = st.toggle("🔌 Ligar Robô", value=True)
 
@@ -131,39 +123,93 @@ def indicadores(df):
 
 
 # =========================
-# SINAL
+# IA - ESCOLHA DE ESTRATÉGIA
 # =========================
-def sinal(df):
+def escolher_estrategia(df):
 
-    score = 0
+    ma9 = df["MA9"].iloc[-1]
+    ma21 = df["MA21"].iloc[-1]
+    rsi = df["RSI"].iloc[-1]
+    atr = df["ATR"].iloc[-1]
+    price = df["close"].iloc[-1]
+
+    tendencia = abs(ma9 - ma21)
+    volatilidade = atr / price
+
+    if tendencia > atr * 0.5:
+        return "TREND"
+
+    if 40 < rsi < 60:
+        return "REVERSAO"
+
+    if volatilidade > 0.003:
+        return "BREAKOUT"
+
+    return "TREND"
+
+
+# =========================
+# ESTRATÉGIAS
+# =========================
+def estrategia_trend(df):
 
     if df["MA9"].iloc[-1] > df["MA21"].iloc[-1]:
-        score += 1
-    else:
-        score -= 1
+        return "COMPRA"
+    if df["MA9"].iloc[-1] < df["MA21"].iloc[-1]:
+        return "VENDA"
+
+    return "AGUARDAR"
+
+
+def estrategia_reversao(df):
 
     rsi = df["RSI"].iloc[-1]
-    if rsi > 55:
-        score += 1
-    elif rsi < 45:
-        score -= 1
 
-    m = MACD(df["close"])
-    if m.macd().iloc[-1] > m.macd_signal().iloc[-1]:
-        score += 1
-    else:
-        score -= 1
-
-    if score >= 3:
+    if rsi < 30:
         return "COMPRA"
-    if score <= -3:
+    if rsi > 70:
+        return "VENDA"
+
+    return "AGUARDAR"
+
+
+def estrategia_breakout(df):
+
+    atr = df["ATR"].iloc[-1]
+    close = df["close"].iloc[-1]
+
+    high_prev = df["high"].iloc[-2]
+    low_prev = df["low"].iloc[-2]
+
+    if close > high_prev + atr:
+        return "COMPRA"
+    if close < low_prev - atr:
         return "VENDA"
 
     return "AGUARDAR"
 
 
 # =========================
-# BACKTEST REALISTA (NOVO)
+# SINAL FINAL (IA)
+# =========================
+def sinal(df):
+
+    modo = escolher_estrategia(df)
+
+    if modo == "TREND":
+        return estrategia_trend(df)
+
+    if modo == "REVERSAO":
+        return estrategia_reversao(df)
+
+    if modo == "BREAKOUT":
+        return estrategia_breakout(df)
+
+    return "AGUARDAR"
+
+
+# =========================
+# BACKTEST REALISTA
 # =========================
 def backtest_realista(df):
 
@@ -182,7 +228,7 @@ def backtest_realista(df):
         if sig == "AGUARDAR":
             continue
 
-        entry = sub["close"].iloc[-1]
+        entry = df["open"].iloc[i]
         atr = sub["ATR"].iloc[-1]
 
         sl = atr * sl_mult
@@ -223,9 +269,9 @@ def backtest_realista(df):
 
 
 # =========================
-# CONTROLADOR BACKTEST
+# BACKTEST CONTROL
 # =========================
-def rodar_backtest(ativo, df):
+def rodar_backtest(df):
     return backtest_realista(df)
 
 
@@ -234,22 +280,20 @@ def rodar_backtest(ativo, df):
 # =========================
 if ligado:
 
-    st.markdown("## 📊 PAINEL MULTI ATIVOS")
+    st.markdown("## 📊 ROBÔ IA MULTI-ESTRATÉGIA")
 
     assets_news = ["USD", "EUR"]
 
-    data_news = get_economic_news()
-    news = filter_news(data_news, assets_news)
+    news = filter_news(get_economic_news(), assets_news)
 
     st.markdown("## 📰 NOTÍCIAS")
-    st.dataframe(pd.DataFrame(news), use_container_width=True)
+    st.dataframe(pd.DataFrame(news))
 
     ranking = {}
 
     for ativo in ativos:
 
         df = pegar_dados(ativo)
-
         if df is None:
             continue
 
@@ -262,9 +306,9 @@ if ligado:
         st.write("Preço:", preco)
         st.write("Sinal:", sig)
 
-        w, l, t, wr = rodar_backtest(ativo, df)
+        w, l, t, wr = rodar_backtest(df)
 
-        st.write(f"Wins: {w} Losses: {l} Winrate: {wr}")
+        st.write(f"Wins: {w} Losses: {l} Winrate: {wr}%")
 
         ranking[ativo] = wr
 
