@@ -534,7 +534,7 @@ if ligado:
 
         result = rodar_backtest(ativo, df)
 
-        if ativo in ["GBP/USD", "USD/JPY", "AUD/USD"]:
+        if ativo in ["USD/JPY", "AUD/USD"]:
             saldo, wr, w, l, max_ls = result
             st.write(f"Wins: {w}  Losses: {l}  Winrate: {round(wr,1)}")
             ranking[ativo] = wr
