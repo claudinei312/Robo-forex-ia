@@ -51,15 +51,19 @@ def filter_news(data, assets):
     news_list = []
     now = datetime.utcnow()
 
+    assets = set(assets)  # 🔥 garante comparação mais rápida e limpa
+
     for e in data:
         try:
-            currency = e.get("currency", "")
+            currency = e.get("currency", "").strip().upper()
+
+            # 🔴 FILTRO FORÇADO
+            if currency not in assets:
+                continue
+
             impact = e.get("impact", "")
             title = e.get("title", "")
             time_str = e.get("date", "")
-
-            if currency not in assets:
-                continue
 
             event_time = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
             minutes = (event_time - now).total_seconds() / 60
